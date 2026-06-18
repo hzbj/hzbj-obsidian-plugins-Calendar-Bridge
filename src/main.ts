@@ -1,12 +1,14 @@
 import { Notice, Plugin, TFile } from "obsidian";
 import { DEFAULT_DATA, VIEW_TYPE_PERSONAL_SYSTEM } from "./models/constants";
 import type { CalendarBridgeData, CalendarTask, ReviewPressureByDate } from "./models/types";
+import { AI_SCHEDULE_CONTEXT_PATH, AiScheduleContextExporter } from "./services/AiScheduleContext";
 import { ReviewPressureScanner } from "./services/ReviewPressure";
 import { TaskDateWriter } from "./services/TaskDateWriter";
 import { TaskScanner } from "./services/TaskScanner";
 import { PersonalSystemView } from "./ui/PersonalSystemView";
 import { PersonalSystemSettingTab } from "./ui/settings/PersonalSystemSettingTab";
 import { todayString } from "./utils/date";
+import { normalizeCalendarPathSettings } from "./utils/pathSettings";
 
 export default class PersonalSchedulerPlugin extends Plugin {
   data: CalendarBridgeData = createDefaultData();
@@ -15,17 +17,25 @@ export default class PersonalSchedulerPlugin extends Plugin {
   taskScanner!: TaskScanner;
   taskDateWriter!: TaskDateWriter;
   reviewPressureScanner!: ReviewPressureScanner;
+  aiScheduleContextExporter!: AiScheduleContextExporter;
 
   async onload(): Promise<void> {
     this.data = mergeCalendarData(await this.loadData());
     this.taskScanner = new TaskScanner(this.app, () => this.data.settings);
     this.taskDateWriter = new TaskDateWriter(this.app);
     this.reviewPressureScanner = new ReviewPressureScanner(this.app, () => this.data.settings);
+    this.aiScheduleContextExporter = new AiScheduleContextExporter(this.app);
     await this.rescanTasks();
 
     this.registerView(VIEW_TYPE_PERSONAL_SYSTEM, (leaf) => new PersonalSystemView(leaf, this));
     this.addSettingTab(new PersonalSystemSettingTab(this));
-    this.registerEvent(this.app.vault.on("modify", () => this.rescanTasks()));
+    this.registerEvent(this.app.vault.on("modify", (file) => {
+      if (file.path === AI_SCHEDULE_CONTEXT_PATH) return;
+      void this.rescanTasks();
+    }));
+    this.registerEvent(this.app.vault.on("create", () => void this.rescanTasks()));
+    this.registerEvent(this.app.vault.on("delete", () => void this.rescanTasks()));
+    this.registerEvent(this.app.vault.on("rename", () => void this.rescanTasks()));
 
     this.addRibbonIcon("calendar-days", "Open Calendar Bridge", () => this.activateView());
     this.addCommand({
@@ -60,6 +70,7 @@ export default class PersonalSchedulerPlugin extends Plugin {
   }
 
   async saveCalendarData(): Promise<void> {
+    normalizeCalendarPathSettings(this.data.settings);
     await this.saveData(this.data);
     await this.rescanTasks();
   }
@@ -71,6 +82,12 @@ export default class PersonalSchedulerPlugin extends Plugin {
     ]);
     this.calendarTasks = tasks;
     this.reviewPressure = reviewPressure;
+    await this.aiScheduleContextExporter.sync({
+      anchorDate: todayString(),
+      tasks,
+      reviewPressure,
+      settings: this.data.settings
+    });
     this.refreshViews();
   }
 
@@ -81,9 +98,15 @@ export default class PersonalSchedulerPlugin extends Plugin {
   async scheduleTaskDate(taskId: string, scheduledDate: string): Promise<void> {
     const target = this.resolveTaskRef(taskId);
     if (!target) return;
-    await this.taskDateWriter.setPointSchedule(
+    const task = this.calendarTasks.find((item) => item.id === taskId);
+    if (task?.spanStart && task.spanEnd) {
+      new Notice("Tasks with a long range must be edited in long task mode.");
+      return;
+    }
+    await this.taskDateWriter.movePointTaskToScheduledDay(
       target.file,
       target.lineNumber,
+      this.data.settings.scheduledDayFolder,
       scheduledDate,
       this.data.settings.defaultUnestimatedTaskMinutes,
       todayString()
@@ -94,6 +117,11 @@ export default class PersonalSchedulerPlugin extends Plugin {
   async scheduleTaskSpan(taskId: string, startDate: string, scheduledDate: string): Promise<void> {
     const target = this.resolveTaskRef(taskId);
     if (!target) return;
+    const task = this.calendarTasks.find((item) => item.id === taskId);
+    if (task?.dates.scheduled) {
+      new Notice("Scheduled point tasks cannot be planned as long tasks.");
+      return;
+    }
     const begin = startDate <= scheduledDate ? startDate : scheduledDate;
     const end = startDate <= scheduledDate ? scheduledDate : startDate;
     await this.taskDateWriter.setSpanDates(target.file, target.lineNumber, begin, end);
@@ -111,6 +139,13 @@ export default class PersonalSchedulerPlugin extends Plugin {
     const target = this.resolveTaskRef(taskId);
     if (!target) return;
     await this.taskDateWriter.setProgress(target.file, target.lineNumber, progressPercent);
+    await this.rescanTasks();
+  }
+
+  async setTaskPriority(taskId: string, priority: string): Promise<void> {
+    const target = this.resolveTaskRef(taskId);
+    if (!target) return;
+    await this.taskDateWriter.setPriority(target.file, target.lineNumber, priority);
     await this.rescanTasks();
   }
 
@@ -153,10 +188,12 @@ function mergeCalendarData(raw: unknown): CalendarBridgeData {
   const defaults = createDefaultData();
   if (!raw || typeof raw !== "object") return defaults;
   const partial = raw as Partial<CalendarBridgeData>;
-  return {
+  const merged = {
     ...defaults,
     ...partial,
     settings: { ...defaults.settings, ...(partial.settings ?? {}) },
-    ui: partial.ui ?? defaults.ui
+    ui: { ...defaults.ui, ...(partial.ui ?? {}) }
   };
+  normalizeCalendarPathSettings(merged.settings);
+  return merged;
 }

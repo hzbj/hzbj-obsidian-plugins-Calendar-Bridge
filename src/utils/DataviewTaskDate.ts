@@ -1,4 +1,4 @@
-import type { DateField, DateSource, TaskDateMap, TaskDateSourceMap } from "../models/types";
+import type { DateField, DateSource, TaskDateMap, TaskDateSourceMap, TaskPriority } from "../models/types";
 
 export interface ExtractedTaskMetadata {
   metadata: Record<string, string[]>;
@@ -60,7 +60,8 @@ export function extractTaskMetadata(line: string, readLegacyEmojiDates: boolean)
   const plainEstimateMinutes = extractPlainEstimateMinutes(line);
   const estimateMinutes = plainEstimateMinutes ?? firstParsedDuration(metadata.estimate);
   const durationMinutes = firstParsedDuration(metadata.duration);
-  const spanStart = dates.start && dates.due ? dates.start : undefined;
+  const spanEnd = getRangeEndDate(dates);
+  const spanStart = dates.start && spanEnd ? dates.start : undefined;
   const progressPercent = parseProgressPercent(first(metadata.progress));
 
   return {
@@ -70,7 +71,7 @@ export function extractTaskMetadata(line: string, readLegacyEmojiDates: boolean)
     createdDate: dates.created,
     scheduleDate,
     spanStart,
-    spanEnd: spanStart ? dates.due : undefined,
+    spanEnd: spanStart ? spanEnd : undefined,
     estimateMinutes,
     plainEstimateMinutes,
     progressPercent,
@@ -112,7 +113,7 @@ export function setTaskScheduleDate(line: string, scheduledDate: string): string
 
 export function setPointTaskSchedule(line: string, scheduledDate: string, defaultEstimateMinutes: number, createdDate: string): string {
   const parsed = extractTaskMetadata(line, false);
-  let updated = removeFields(line, ["scheduled", "due"]);
+  let updated = removeFields(line, ["start", "scheduled", "due"]);
   if (parsed.plainEstimateMinutes === undefined && parsed.estimateMinutes === undefined) {
     updated = insertPlainEstimate(updated, defaultEstimateMinutes);
   }
@@ -135,6 +136,22 @@ export function setTaskProgress(line: string, progressPercent: number): string {
   return appendField(removeFields(line, ["progress"]), "progress", `${clamped}%`);
 }
 
+export function normalizeTaskPriority(raw: string | undefined): TaskPriority | undefined {
+  if (!raw) return undefined;
+  const value = raw.trim().toLowerCase();
+  if (value === "p1" || value === "1" || value === "highest") return "highest";
+  if (value === "p2" || value === "2" || value === "high") return "high";
+  if (value === "p3" || value === "3" || value === "normal" || value === "medium" || value === "med") return "medium";
+  if (value === "p4" || value === "4" || value === "low" || value === "lowest") return "low";
+  return undefined;
+}
+
+export function setTaskPriority(line: string, priority: string): string {
+  const normalized = normalizeTaskPriority(priority);
+  if (!normalized) return removeFields(line, ["priority"]);
+  return appendField(removeFields(line, ["priority"]), "priority", normalized);
+}
+
 export function clearTaskScheduleDates(line: string): string {
   return removeFields(line, ["due", "scheduled", "start"]).replace(LEGACY_EMOJI_DATE_RE, " ").replace(/[ \t]+$/u, "");
 }
@@ -154,6 +171,17 @@ export function cleanTaskDisplayText(line: string, triggerTags: string[]): strin
       return !tagSet.has(part.slice(1).toLowerCase());
     })
     .filter((part) => !isPlainEstimateToken(part))
+    .join(" ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+export function cleanTaskContentText(line: string): string {
+  const withoutCheckbox = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "");
+  const withoutFields = withoutCheckbox.replace(INLINE_FIELD_RE, " ").replace(LEGACY_EMOJI_DATE_RE, " ");
+  return withoutFields
+    .split(/\s+/u)
+    .filter((part) => part && !part.startsWith("#") && !isPlainEstimateToken(part))
     .join(" ")
     .replace(/\s+/gu, " ")
     .trim();
@@ -193,6 +221,14 @@ function normalizeFieldKey(raw: string): string {
 
 function isDateField(key: string): key is DateField {
   return DATE_FIELDS.includes(key as DateField);
+}
+
+function getRangeEndDate(dates: TaskDateMap): string | undefined {
+  if (!dates.start) return undefined;
+  for (const candidate of [dates.due, dates.scheduled]) {
+    if (candidate && dates.start < candidate) return candidate;
+  }
+  return undefined;
 }
 
 function first(values: string[] | undefined): string | undefined {

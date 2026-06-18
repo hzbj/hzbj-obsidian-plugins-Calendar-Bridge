@@ -1,11 +1,15 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
+  cleanTaskContentText,
   cleanTaskDisplayText,
   extractTaskMetadata,
   parseDurationToMinutes,
   clearTaskScheduleDates,
+  normalizeTaskPriority,
+  setTaskPriority,
   setTaskEstimate,
+  setTaskProgress,
   setPointTaskSchedule,
   setTaskScheduleDate,
   setTaskSpanDates
@@ -94,6 +98,17 @@ test("point task schedule preserves existing created and estimate values", () =>
   );
 });
 
+test("point task schedule clears stale start field and writes only point date fields", () => {
+  const updated = setPointTaskSchedule(
+    "- [ ] Point #task [start:: 2026-06-10] [scheduled:: 2026-06-12] [due:: 2026-06-12] [context:: desk]",
+    "2026-06-17",
+    30,
+    "2026-06-17"
+  );
+
+  assert.equal(updated, "- [ ] Point #task 30m [context:: desk] [created:: 2026-06-17] [scheduled:: 2026-06-17] [due:: 2026-06-17]");
+});
+
 test("replaces existing scheduled date while preserving other metadata", () => {
   assert.equal(
     setTaskScheduleDate("\t- [ ] Check NAS #task [scheduled:: 2024-01-13] [due:: 2024-01-12] ⏰ 21:00", "2024-01-14"),
@@ -116,6 +131,17 @@ test("writes span dates and estimate without removing other fields", () => {
   );
 });
 
+test("estimate and progress writeback preserve unrelated Dataview fields", () => {
+  assert.equal(
+    setTaskEstimate("- [ ] A #task [context:: phone] [estimate:: 30m] [progress:: 40%]", 75),
+    "- [ ] A #task [context:: phone] [progress:: 40%] [estimate:: 75m]"
+  );
+  assert.equal(
+    setTaskProgress("- [ ] A #task [context:: phone] [estimate:: 75m] [progress:: 40%]", 65),
+    "- [ ] A #task [context:: phone] [estimate:: 75m] [progress:: 65%]"
+  );
+});
+
 test("clears all schedule dates while preserving estimate and other metadata", () => {
   assert.equal(
     clearTaskScheduleDates("- [ ] A #task [due:: 2024-01-10] [start:: 2024-01-11] [scheduled:: 2024-01-12] [estimate:: 75m] 📅 2024-01-09 [context:: phone]"),
@@ -123,9 +149,45 @@ test("clears all schedule dates while preserving estimate and other metadata", (
   );
 });
 
+test("clearing schedule preserves priority, progress, estimate, and unrelated Dataview fields", () => {
+  assert.equal(
+    clearTaskScheduleDates("- [ ] Long #task [start:: 2026-06-10] [due:: 2026-06-20] [scheduled:: 2026-06-12] [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk] 📅 2026-06-11"),
+    "- [ ] Long #task [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk]"
+  );
+});
+
+test("normalizes and writes task priority without disturbing unrelated fields", () => {
+  assert.equal(normalizeTaskPriority("highest"), "highest");
+  assert.equal(normalizeTaskPriority("P1"), "highest");
+  assert.equal(normalizeTaskPriority("1"), "highest");
+  assert.equal(normalizeTaskPriority("high"), "high");
+  assert.equal(normalizeTaskPriority("P2"), "high");
+  assert.equal(normalizeTaskPriority("2"), "high");
+  assert.equal(normalizeTaskPriority("normal"), "medium");
+  assert.equal(normalizeTaskPriority("medium"), "medium");
+  assert.equal(normalizeTaskPriority("P3"), "medium");
+  assert.equal(normalizeTaskPriority("3"), "medium");
+  assert.equal(normalizeTaskPriority("low"), "low");
+  assert.equal(normalizeTaskPriority("lowest"), "low");
+  assert.equal(normalizeTaskPriority("P4"), "low");
+  assert.equal(normalizeTaskPriority("4"), "low");
+  assert.equal(normalizeTaskPriority("unknown"), undefined);
+  assert.equal(
+    setTaskPriority("- [ ] A #task [context:: phone] [priority:: P1] [progress:: 40%]", "highest"),
+    "- [ ] A #task [context:: phone] [progress:: 40%] [priority:: highest]"
+  );
+});
+
 test("clean display text removes trigger tags and Dataview fields", () => {
   assert.equal(
     cleanTaskDisplayText("- [ ] A  B #task [scheduled:: 2024-01-18] [estimate:: 75m] #keep", ["task", "todo"]),
     "A B #keep"
+  );
+});
+
+test("clean content text removes all tags, fields, dates, and plain estimates", () => {
+  assert.equal(
+    cleanTaskContentText("- [ ] A  B #task #T/phase-ui 45m [scheduled:: 2024-01-18] [priority:: P1] 馃搮 2024-01-18"),
+    "A B"
   );
 });

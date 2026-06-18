@@ -34,7 +34,8 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
   const plainEstimateMinutes = extractPlainEstimateMinutes(line);
   const estimateMinutes = plainEstimateMinutes ?? firstParsedDuration(metadata.estimate);
   const durationMinutes = firstParsedDuration(metadata.duration);
-  const spanStart = dates.start && dates.due ? dates.start : void 0;
+  const spanEnd = getRangeEndDate(dates);
+  const spanStart = dates.start && spanEnd ? dates.start : void 0;
   const progressPercent = parseProgressPercent(first(metadata.progress));
   return {
     metadata,
@@ -43,7 +44,7 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
     createdDate: dates.created,
     scheduleDate,
     spanStart,
-    spanEnd: spanStart ? dates.due : void 0,
+    spanEnd: spanStart ? spanEnd : void 0,
     estimateMinutes,
     plainEstimateMinutes,
     progressPercent,
@@ -77,7 +78,7 @@ function setTaskScheduleDate(line, scheduledDate) {
 }
 function setPointTaskSchedule(line, scheduledDate, defaultEstimateMinutes, createdDate) {
   const parsed = extractTaskMetadata(line, false);
-  let updated = removeFields(line, ["scheduled", "due"]);
+  let updated = removeFields(line, ["start", "scheduled", "due"]);
   if (parsed.plainEstimateMinutes === void 0 && parsed.estimateMinutes === void 0) {
     updated = insertPlainEstimate(updated, defaultEstimateMinutes);
   }
@@ -92,6 +93,30 @@ function setTaskSpanDates(line, startDate, scheduledDate) {
 function setTaskEstimate(line, estimateMinutes) {
   return appendField(removeFields(line, ["estimate"]), "estimate", `${Math.max(0, Math.round(estimateMinutes))}m`);
 }
+function setTaskProgress(line, progressPercent) {
+  const clamped = Math.min(100, Math.max(0, Math.round(progressPercent)));
+  return appendField(removeFields(line, ["progress"]), "progress", `${clamped}%`);
+}
+function normalizeTaskPriority(raw) {
+  if (!raw)
+    return void 0;
+  const value = raw.trim().toLowerCase();
+  if (value === "p1" || value === "1" || value === "highest")
+    return "highest";
+  if (value === "p2" || value === "2" || value === "high")
+    return "high";
+  if (value === "p3" || value === "3" || value === "normal" || value === "medium" || value === "med")
+    return "medium";
+  if (value === "p4" || value === "4" || value === "low" || value === "lowest")
+    return "low";
+  return void 0;
+}
+function setTaskPriority(line, priority) {
+  const normalized = normalizeTaskPriority(priority);
+  if (!normalized)
+    return removeFields(line, ["priority"]);
+  return appendField(removeFields(line, ["priority"]), "priority", normalized);
+}
 function clearTaskScheduleDates(line) {
   return removeFields(line, ["due", "scheduled", "start"]).replace(LEGACY_EMOJI_DATE_RE, " ").replace(/[ \t]+$/u, "");
 }
@@ -104,6 +129,11 @@ function cleanTaskDisplayText(line, triggerTags) {
       return true;
     return !tagSet.has(part.slice(1).toLowerCase());
   }).filter((part) => !isPlainEstimateToken(part)).join(" ").replace(/\s+/gu, " ").trim();
+}
+function cleanTaskContentText(line) {
+  const withoutCheckbox = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "");
+  const withoutFields = withoutCheckbox.replace(INLINE_FIELD_RE, " ").replace(LEGACY_EMOJI_DATE_RE, " ");
+  return withoutFields.split(/\s+/u).filter((part) => part && !part.startsWith("#") && !isPlainEstimateToken(part)).join(" ").replace(/\s+/gu, " ").trim();
 }
 function removeFields(line, fields) {
   const fieldSet = new Set(fields.map(normalizeFieldKey));
@@ -134,6 +164,15 @@ function normalizeFieldKey(raw) {
 }
 function isDateField(key) {
   return DATE_FIELDS.includes(key);
+}
+function getRangeEndDate(dates) {
+  if (!dates.start)
+    return void 0;
+  for (const candidate of [dates.due, dates.scheduled]) {
+    if (candidate && dates.start < candidate)
+      return candidate;
+  }
+  return void 0;
 }
 function first(values) {
   return values?.find((value) => value.trim().length > 0)?.trim();
@@ -245,6 +284,15 @@ function parseProgressPercent(raw) {
     "- [ ] \u4E2A\u4EBA\u6BD5\u4E1A\u7167\u6253\u5305\u53D1\u9001 45m #task [created:: 2026-06-10] [context:: phone] [scheduled:: 2026-06-17] [due:: 2026-06-17]"
   );
 });
+(0, import_node_test.test)("point task schedule clears stale start field and writes only point date fields", () => {
+  const updated = setPointTaskSchedule(
+    "- [ ] Point #task [start:: 2026-06-10] [scheduled:: 2026-06-12] [due:: 2026-06-12] [context:: desk]",
+    "2026-06-17",
+    30,
+    "2026-06-17"
+  );
+  import_node_assert.strict.equal(updated, "- [ ] Point #task 30m [context:: desk] [created:: 2026-06-17] [scheduled:: 2026-06-17] [due:: 2026-06-17]");
+});
 (0, import_node_test.test)("replaces existing scheduled date while preserving other metadata", () => {
   import_node_assert.strict.equal(
     setTaskScheduleDate("	- [ ] Check NAS #task [scheduled:: 2024-01-13] [due:: 2024-01-12] \u23F0 21:00", "2024-01-14"),
@@ -265,15 +313,58 @@ function parseProgressPercent(raw) {
     "- [ ] A  B #task [scheduled:: 2024-01-18] [estimate:: 75m]"
   );
 });
+(0, import_node_test.test)("estimate and progress writeback preserve unrelated Dataview fields", () => {
+  import_node_assert.strict.equal(
+    setTaskEstimate("- [ ] A #task [context:: phone] [estimate:: 30m] [progress:: 40%]", 75),
+    "- [ ] A #task [context:: phone] [progress:: 40%] [estimate:: 75m]"
+  );
+  import_node_assert.strict.equal(
+    setTaskProgress("- [ ] A #task [context:: phone] [estimate:: 75m] [progress:: 40%]", 65),
+    "- [ ] A #task [context:: phone] [estimate:: 75m] [progress:: 65%]"
+  );
+});
 (0, import_node_test.test)("clears all schedule dates while preserving estimate and other metadata", () => {
   import_node_assert.strict.equal(
     clearTaskScheduleDates("- [ ] A #task [due:: 2024-01-10] [start:: 2024-01-11] [scheduled:: 2024-01-12] [estimate:: 75m] \u{1F4C5} 2024-01-09 [context:: phone]"),
     "- [ ] A #task [estimate:: 75m] [context:: phone]"
   );
 });
+(0, import_node_test.test)("clearing schedule preserves priority, progress, estimate, and unrelated Dataview fields", () => {
+  import_node_assert.strict.equal(
+    clearTaskScheduleDates("- [ ] Long #task [start:: 2026-06-10] [due:: 2026-06-20] [scheduled:: 2026-06-12] [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk] \u{1F4C5} 2026-06-11"),
+    "- [ ] Long #task [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk]"
+  );
+});
+(0, import_node_test.test)("normalizes and writes task priority without disturbing unrelated fields", () => {
+  import_node_assert.strict.equal(normalizeTaskPriority("highest"), "highest");
+  import_node_assert.strict.equal(normalizeTaskPriority("P1"), "highest");
+  import_node_assert.strict.equal(normalizeTaskPriority("1"), "highest");
+  import_node_assert.strict.equal(normalizeTaskPriority("high"), "high");
+  import_node_assert.strict.equal(normalizeTaskPriority("P2"), "high");
+  import_node_assert.strict.equal(normalizeTaskPriority("2"), "high");
+  import_node_assert.strict.equal(normalizeTaskPriority("normal"), "medium");
+  import_node_assert.strict.equal(normalizeTaskPriority("medium"), "medium");
+  import_node_assert.strict.equal(normalizeTaskPriority("P3"), "medium");
+  import_node_assert.strict.equal(normalizeTaskPriority("3"), "medium");
+  import_node_assert.strict.equal(normalizeTaskPriority("low"), "low");
+  import_node_assert.strict.equal(normalizeTaskPriority("lowest"), "low");
+  import_node_assert.strict.equal(normalizeTaskPriority("P4"), "low");
+  import_node_assert.strict.equal(normalizeTaskPriority("4"), "low");
+  import_node_assert.strict.equal(normalizeTaskPriority("unknown"), void 0);
+  import_node_assert.strict.equal(
+    setTaskPriority("- [ ] A #task [context:: phone] [priority:: P1] [progress:: 40%]", "highest"),
+    "- [ ] A #task [context:: phone] [progress:: 40%] [priority:: highest]"
+  );
+});
 (0, import_node_test.test)("clean display text removes trigger tags and Dataview fields", () => {
   import_node_assert.strict.equal(
     cleanTaskDisplayText("- [ ] A  B #task [scheduled:: 2024-01-18] [estimate:: 75m] #keep", ["task", "todo"]),
     "A B #keep"
+  );
+});
+(0, import_node_test.test)("clean content text removes all tags, fields, dates, and plain estimates", () => {
+  import_node_assert.strict.equal(
+    cleanTaskContentText("- [ ] A  B #task #T/phase-ui 45m [scheduled:: 2024-01-18] [priority:: P1] \u9983\u642E 2024-01-18"),
+    "A B"
   );
 });

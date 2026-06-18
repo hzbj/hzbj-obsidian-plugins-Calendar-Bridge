@@ -13,7 +13,8 @@ export const DEFAULT_DATA: CalendarBridgeData = {
     triggerTags: ["task", "todo"],
     weekStartsOn: 1,
     readLegacyEmojiDates: true,
-    excludedPathPrefixes: ["time-blocks-data/", ".obsidian/"],
+    includedPathPrefixes: [],
+    excludedPathPrefixes: ["time-blocks-data/", ".obsidian/", ".trash/"],
     primaryScheduleField: "scheduled",
     estimateField: "estimate",
     showAllDataviewFields: true,
@@ -21,7 +22,14 @@ export const DEFAULT_DATA: CalendarBridgeData = {
     reviewBaseMinutes: 2,
     reviewCharsPerMinute: 800,
     defaultUnestimatedTaskMinutes: 30,
-    monthHeatmapMode: "task-estimate-plus-review"
+    monthHeatmapMode: "task-estimate-plus-review",
+    scheduledDayFolder: "Calendar/Scheduled"
   },
-  ui: {}
+  ui: {
+    sourceTaskGroups: {
+      order: [],
+      collapsed: {},
+      sortMode: "manual"
+    }
+  }
 };

@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { buildMonthViewModel, buildWeekViewModel } from "../src/services/CalendarViewModel";
-import type { CalendarTask, ReviewPressureByDate } from "../src/models/types";
+import { buildMonthViewModel, buildSourceTaskGroups, buildWeekViewModel, normalizePriorityRank } from "../src/services/CalendarViewModel";
+import type { CalendarTask, ReviewPressureByDate, SourceTaskGroupState } from "../src/models/types";
 
 const tasks: CalendarTask[] = [
   task("a", "Unscheduled"),
@@ -107,6 +107,112 @@ test("keeps long tasks out of point task pressure and builds long task progress 
   assert.equal(model.longTaskProgress[0].dailyProgressPressure, 25);
   assert.equal(model.longTaskProgress[0].dailyEstimatedMinutes, 150);
   assert.equal(model.longTaskProgress[0].status, "behind");
+});
+
+test("builds one unified unscheduled pool for point and long task modes", () => {
+  const mixedTasks: CalendarTask[] = [
+    task("u1", "Plain unscheduled"),
+    task("u2", "Due-only candidate", { due: "2026-06-25" }),
+    task("u3", "Partial long candidate", { start: "2026-06-20" }, { taskKind: "long" }),
+    task("u4", "Repeating candidate", {}, { recurrence: "every week" }),
+    task("p1", "Scheduled point", { scheduled: "2026-06-17", due: "2026-06-17" }),
+    task("l1", "Ranged long candidate", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
+    task("l2", "Scheduled long", { start: "2026-06-10", due: "2026-06-20", scheduled: "2026-06-10" }, { taskKind: "long" }),
+    task("d1", "Done unscheduled", {}, { completed: true })
+  ];
+
+  const model = buildMonthViewModel("2026-06-17", mixedTasks, 1, {}, 30) as any;
+
+  assert.deepEqual(model.unifiedUnscheduledTasks.map((item: CalendarTask) => item.id), ["u1", "u2", "u3"]);
+  assert.equal(model.unifiedUnscheduledTasks.every((item: CalendarTask) => !item.dates.scheduled), true);
+  assert.equal(model.unifiedUnscheduledTasks.some((item: CalendarTask) => item.id === "u4"), false);
+  assert.equal(model.unifiedUnscheduledTasks.some((item: CalendarTask) => item.id === "l1"), false);
+  assert.equal(model.unifiedUnscheduledTasks.some((item: CalendarTask) => item.id === "l2"), false);
+});
+
+test("builds current-month long task timeline rows including overdue and clipped cross-month ranges", () => {
+  const longTasks: CalendarTask[] = [
+    task("l1", "Cross month", { start: "2026-05-28", due: "2026-06-04" }, { taskKind: "long" }),
+    task("l2", "Inside month", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
+    task("l3", "Overdue long", { start: "2026-06-01", due: "2026-06-16" }, { taskKind: "long", progressPercent: 80 }),
+    task("p1", "Point", { scheduled: "2026-06-12" })
+  ];
+
+  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30) as any;
+
+  assert.deepEqual(model.longTaskTimelineRows.map((row: any) => ({
+    id: row.task.id,
+    visibleStartDate: row.visibleStartDate,
+    visibleEndDate: row.visibleEndDate,
+    startDay: row.startDay,
+    endDay: row.endDay,
+    isOverdue: row.isOverdue
+  })), [
+    { id: "l1", visibleStartDate: "2026-06-01", visibleEndDate: "2026-06-04", startDay: 1, endDay: 4, isOverdue: true },
+    { id: "l3", visibleStartDate: "2026-06-01", visibleEndDate: "2026-06-16", startDay: 1, endDay: 16, isOverdue: true },
+    { id: "l2", visibleStartDate: "2026-06-10", visibleEndDate: "2026-06-20", startDay: 10, endDay: 20, isOverdue: false }
+  ]);
+});
+
+test("assigns overlapping long task bars to independent layout rows", () => {
+  const longTasks: CalendarTask[] = [
+    task("l1", "Long A", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
+    task("l2", "Long B", { start: "2026-06-12", due: "2026-06-18" }, { taskKind: "long" }),
+    task("l3", "Long C", { start: "2026-06-21", due: "2026-06-24" }, { taskKind: "long" })
+  ];
+
+  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
+  const longBars = model.spanBars.filter((bar) => bar.task.taskKind === "long");
+
+  assert.deepEqual(longBars.map((bar) => ({ id: bar.task.id, layoutRow: bar.layoutRow })), [
+    { id: "l1", layoutRow: 1 },
+    { id: "l2", layoutRow: 2 },
+    { id: "l3", layoutRow: 1 }
+  ]);
+});
+
+test("normalizes Dataview priority values for display and sorting", () => {
+  assert.deepEqual([
+    normalizePriorityRank("highest"),
+    normalizePriorityRank("P1"),
+    normalizePriorityRank("high"),
+    normalizePriorityRank("P2"),
+    normalizePriorityRank("medium"),
+    normalizePriorityRank("normal"),
+    normalizePriorityRank("P3"),
+    normalizePriorityRank("low"),
+    normalizePriorityRank("lowest"),
+    normalizePriorityRank("P4"),
+    normalizePriorityRank("none"),
+    normalizePriorityRank(undefined)
+  ], [1, 1, 2, 2, 3, 3, 3, 4, 4, 4, 4, 4]);
+});
+
+test("groups tasks by source file with persisted group order and priority sorting", () => {
+  const groupState: SourceTaskGroupState = {
+    order: ["Plans/B.md", "Inbox/A.md"],
+    collapsed: { "Plans/B.md": true },
+    sortMode: "priority"
+  };
+  const groupedTasks: CalendarTask[] = [
+    task("a1", "Loose", {}, { filePath: "Inbox/A.md", priority: "low" }),
+    task("a2", "Urgent", {}, { filePath: "Inbox/A.md", priority: "highest" }),
+    task("b1", "Plan", {}, { filePath: "Plans/B.md", priority: "medium" }),
+    task("c1", "New file", {}, { filePath: "New/C.md" })
+  ];
+
+  const groups = buildSourceTaskGroups(groupedTasks, groupState);
+
+  assert.deepEqual(groups.map((group) => ({
+    sourceFilePath: group.sourceFilePath,
+    sourceFileName: group.sourceFileName,
+    collapsed: group.collapsed,
+    taskIds: group.tasks.map((item) => item.id)
+  })), [
+    { sourceFilePath: "Plans/B.md", sourceFileName: "B.md", collapsed: true, taskIds: ["b1"] },
+    { sourceFilePath: "Inbox/A.md", sourceFileName: "A.md", collapsed: false, taskIds: ["a2", "a1"] },
+    { sourceFilePath: "New/C.md", sourceFileName: "C.md", collapsed: false, taskIds: ["c1"] }
+  ]);
 });
 
 function task(

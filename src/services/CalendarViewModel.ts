@@ -5,20 +5,25 @@ import type {
   CalendarTask,
   CalendarViewModel,
   LongTaskProgress,
+  LongTaskTimelineRow,
   ReviewPressureByDate,
+  SourceTaskGroup,
+  SourceTaskGroupState,
   WeekDayRow
 } from "../models/types";
 import { addDays, monthGridDates, todayString, weekDates } from "../utils/date";
+import { normalizeTaskPriority } from "../utils/DataviewTaskDate";
 
 export function buildMonthViewModel(
   anchorDate: string,
   tasks: CalendarTask[],
   weekStartsOn: 0 | 1,
   reviewPressure: ReviewPressureByDate = {},
-  defaultUnestimatedTaskMinutes = 30
+  defaultUnestimatedTaskMinutes = 30,
+  sourceGroupState: SourceTaskGroupState = {}
 ): CalendarViewModel {
   const days = monthGridDates(anchorDate, weekStartsOn);
-  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "month");
+  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "month", sourceGroupState);
 }
 
 export function buildWeekViewModel(
@@ -38,7 +43,8 @@ function buildViewModel(
   anchorDate: string,
   reviewPressure: ReviewPressureByDate,
   defaultUnestimatedTaskMinutes: number,
-  mode: "month" | "week"
+  mode: "month" | "week",
+  sourceGroupState: SourceTaskGroupState = {}
 ): CalendarViewModel {
   const activeTasks = tasks.filter((task) => !task.completed);
   const pointTasks = activeTasks.filter((task) => task.taskKind !== "long");
@@ -74,6 +80,10 @@ function buildViewModel(
     const reason = getOverdueReason(task, todayStringFromAnchor(anchorDate));
     return reason ? [{ ...task, overdueReason: reason }] : [];
   });
+  const unifiedUnscheduledTasks = activeTasks.flatMap((task) => {
+    const reason = getUnifiedUnscheduledReason(task);
+    return reason ? [{ ...task, unscheduledReason: reason }] : [];
+  });
   const unscheduledTasks = pointTasks.flatMap((task) => {
     const reason = getUnscheduledReason(task);
     return reason ? [{ ...task, unscheduledReason: reason }] : [];
@@ -84,13 +94,60 @@ function buildViewModel(
     tasksByDate,
     unscheduledTasks,
     overdueTasks,
+    unifiedUnscheduledTasks,
     dayLoads,
     spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, todayStringFromAnchor(anchorDate)) : [],
+    sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) : [],
     longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
     longUnscheduledTasks: longTasks.filter((task) => !task.spanStart || !task.spanEnd),
     longOverdueTasks: longTasks.filter((task) => isLongTaskOverdue(task, todayStringFromAnchor(anchorDate)))
   };
+}
+
+export function normalizePriorityRank(priority: string | undefined): 1 | 2 | 3 | 4 {
+  const normalized = normalizeTaskPriority(priority);
+  if (normalized === "highest") return 1;
+  if (normalized === "high") return 2;
+  if (normalized === "medium") return 3;
+  return 4;
+}
+
+export function buildSourceTaskGroups(tasks: CalendarTask[], state: SourceTaskGroupState = {}): SourceTaskGroup[] {
+  const byFile = new Map<string, CalendarTask[]>();
+  for (const task of tasks) {
+    const items = byFile.get(task.filePath) ?? [];
+    items.push(task);
+    byFile.set(task.filePath, items);
+  }
+
+  const order = state.order ?? [];
+  const indexByFile = new Map(order.map((filePath, index) => [filePath, index]));
+  return [...byFile.entries()]
+    .sort(([left], [right]) => {
+      const leftIndex = indexByFile.get(left);
+      const rightIndex = indexByFile.get(right);
+      if (leftIndex !== undefined && rightIndex !== undefined) return leftIndex - rightIndex;
+      if (leftIndex !== undefined) return -1;
+      if (rightIndex !== undefined) return 1;
+      return left.localeCompare(right);
+    })
+    .map(([sourceFilePath, groupTasks]) => ({
+      sourceFilePath,
+      sourceFileName: sourceFilePath.split("/").pop() ?? sourceFilePath,
+      collapsed: Boolean(state.collapsed?.[sourceFilePath]),
+      tasks: sortTasksForGroup(groupTasks, state)
+    }));
+}
+
+function sortTasksForGroup(tasks: CalendarTask[], state: SourceTaskGroupState): CalendarTask[] {
+  if (state.sortMode !== "priority") return tasks;
+  return [...tasks].sort((a, b) => {
+    const priorityCompare = normalizePriorityRank(a.priority) - normalizePriorityRank(b.priority);
+    if (priorityCompare !== 0) return priorityCompare;
+    return a.id.localeCompare(b.id);
+  });
 }
 
 function buildLongTaskProgress(tasks: CalendarTask[], today: string): LongTaskProgress[] {
@@ -127,6 +184,48 @@ function isLongTaskOverdue(task: CalendarTask, today: string): boolean {
   return Boolean(task.spanEnd && task.spanEnd < today && (task.progressPercent ?? 0) < 100);
 }
 
+function buildLongTaskTimelineRows(days: CalendarDay[], tasks: CalendarTask[], today: string): LongTaskTimelineRow[] {
+  const monthDays = days.filter((day) => day.inCurrentMonth);
+  const first = monthDays[0]?.date;
+  const last = monthDays[monthDays.length - 1]?.date;
+  if (!first || !last) return [];
+
+  return tasks
+    .filter((task) => task.spanStart && task.spanEnd && task.spanEnd >= first && task.spanStart <= last)
+    .sort((a, b) => {
+      const startCompare = (a.spanStart as string).localeCompare(b.spanStart as string);
+      if (startCompare !== 0) return startCompare;
+      const endCompare = (a.spanEnd as string).localeCompare(b.spanEnd as string);
+      if (endCompare !== 0) return endCompare;
+      return a.id.localeCompare(b.id);
+    })
+    .map((task) => {
+      const fullStartDate = task.spanStart as string;
+      const fullEndDate = task.spanEnd as string;
+      const visibleStartDate = fullStartDate < first ? first : fullStartDate;
+      const visibleEndDate = fullEndDate > last ? last : fullEndDate;
+      const progressPercent = task.progressPercent ?? 0;
+      const totalDays = Math.max(1, diffDays(fullStartDate, fullEndDate));
+      const daysElapsed = Math.min(totalDays, Math.max(0, diffDays(fullStartDate, today)));
+      const expectedProgressPercent = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
+      return {
+        task,
+        fullStartDate,
+        fullEndDate,
+        visibleStartDate,
+        visibleEndDate,
+        startDay: Number.parseInt(visibleStartDate.slice(8, 10), 10),
+        endDay: Number.parseInt(visibleEndDate.slice(8, 10), 10),
+        isClippedStart: fullStartDate < first,
+        isClippedEnd: fullEndDate > last,
+        isOverdue: isLongTaskOverdue(task, today),
+        daysLeft: Math.max(0, diffDays(today, fullEndDate)),
+        progressPercent,
+        status: progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track"
+      };
+    });
+}
+
 function buildSpanBars(days: CalendarDay[], tasks: CalendarTask[]): CalendarSpanBar[] {
   const first = days[0]?.date;
   const last = days[days.length - 1]?.date;
@@ -143,10 +242,31 @@ function buildSpanBars(days: CalendarDay[], tasks: CalendarTask[]): CalendarSpan
       startDate,
       endDate,
       startIndex: indexByDate.get(startDate) ?? 0,
-      endIndex: indexByDate.get(endDate) ?? days.length - 1
+      endIndex: indexByDate.get(endDate) ?? days.length - 1,
+      layoutRow: 1
     });
   }
-  return bars;
+  return assignSpanBarRows(bars);
+}
+
+function assignSpanBarRows(bars: CalendarSpanBar[]): CalendarSpanBar[] {
+  const sorted = [...bars].sort((a, b) => {
+    if (a.startIndex !== b.startIndex) return a.startIndex - b.startIndex;
+    if (a.endIndex !== b.endIndex) return a.endIndex - b.endIndex;
+    return a.task.id.localeCompare(b.task.id);
+  });
+  const lastEndByRow: number[] = [];
+
+  return sorted.map((bar) => {
+    let rowIndex = lastEndByRow.findIndex((lastEnd) => lastEnd < bar.startIndex);
+    if (rowIndex < 0) {
+      rowIndex = lastEndByRow.length;
+      lastEndByRow.push(bar.endIndex);
+    } else {
+      lastEndByRow[rowIndex] = bar.endIndex;
+    }
+    return { ...bar, layoutRow: rowIndex + 1 };
+  });
 }
 
 function buildWeekDayRows(
@@ -196,6 +316,15 @@ function getUnscheduledReason(task: CalendarTask): string | undefined {
   if (task.filePath.includes("规划/阶段")) return "path contains 规划/阶段";
   if (!task.dates.scheduled && !isRecurring(task)) return "scheduled is empty and not recurring";
   return undefined;
+}
+
+function getUnifiedUnscheduledReason(task: CalendarTask): string | undefined {
+  if (task.dates.scheduled) return undefined;
+  if (isRecurring(task)) return undefined;
+  if (task.taskKind === "long" && task.spanStart && task.spanEnd) return undefined;
+  if (task.filePath.includes("鏀堕泦/浠ｅ姙")) return "path contains 鏀堕泦/浠ｅ姙";
+  if (task.filePath.includes("瑙勫垝/闃舵")) return "path contains 瑙勫垝/闃舵";
+  return "not scheduled";
 }
 
 function isRecurring(task: CalendarTask): boolean {

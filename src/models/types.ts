@@ -5,6 +5,8 @@ export type DateField = "due" | "scheduled" | "start" | "completion" | "created"
 export type MonthHeatmapMode = "task-estimate-plus-review";
 export type MonthTaskViewMode = "point" | "long";
 export type LongTaskPaceStatus = "ahead" | "on-track" | "behind";
+export type TaskSortMode = "manual" | "priority";
+export type TaskPriority = "highest" | "high" | "medium" | "low";
 
 export type TaskDateMap = Partial<Record<DateField, string>>;
 export type TaskDateSourceMap = Partial<Record<DateField, DateSource>>;
@@ -44,6 +46,7 @@ export interface CalendarSettings {
   triggerTags: string[];
   weekStartsOn: 0 | 1;
   readLegacyEmojiDates: boolean;
+  includedPathPrefixes: string[];
   excludedPathPrefixes: string[];
   primaryScheduleField: "scheduled";
   estimateField: "estimate";
@@ -53,6 +56,7 @@ export interface CalendarSettings {
   reviewCharsPerMinute: number;
   defaultUnestimatedTaskMinutes: number;
   monthHeatmapMode: MonthHeatmapMode;
+  scheduledDayFolder: string;
 }
 
 export interface CalendarBridgeData {
@@ -60,8 +64,22 @@ export interface CalendarBridgeData {
   settings: CalendarSettings;
   ui: {
     monthTaskViewMode?: MonthTaskViewMode;
+    sourceTaskGroups?: SourceTaskGroupState;
     [key: string]: unknown;
   };
+}
+
+export interface SourceTaskGroupState {
+  order?: string[];
+  collapsed?: Record<string, boolean>;
+  sortMode?: TaskSortMode;
+}
+
+export interface SourceTaskGroup {
+  sourceFilePath: string;
+  sourceFileName: string;
+  collapsed: boolean;
+  tasks: CalendarTask[];
 }
 
 export interface CalendarDay {
@@ -94,6 +112,7 @@ export interface CalendarSpanBar {
   endDate: string;
   startIndex: number;
   endIndex: number;
+  layoutRow: number;
 }
 
 export interface LongTaskProgress {
@@ -105,6 +124,22 @@ export interface LongTaskProgress {
   progressPercent: number;
   dailyProgressPressure: number;
   dailyEstimatedMinutes?: number;
+  status: LongTaskPaceStatus;
+}
+
+export interface LongTaskTimelineRow {
+  task: CalendarTask;
+  fullStartDate: string;
+  fullEndDate: string;
+  visibleStartDate: string;
+  visibleEndDate: string;
+  startDay: number;
+  endDay: number;
+  isClippedStart: boolean;
+  isClippedEnd: boolean;
+  isOverdue: boolean;
+  daysLeft: number;
+  progressPercent: number;
   status: LongTaskPaceStatus;
 }
 
@@ -121,8 +156,11 @@ export interface CalendarViewModel {
   tasksByDate: Record<string, CalendarTask[]>;
   unscheduledTasks: CalendarTask[];
   overdueTasks: CalendarTask[];
+  unifiedUnscheduledTasks: CalendarTask[];
   dayLoads: Record<string, CalendarDayLoad>;
   spanBars: CalendarSpanBar[];
+  longTaskTimelineRows: LongTaskTimelineRow[];
+  sourceTaskGroups: SourceTaskGroup[];
   weekDayRows: WeekDayRow[];
   longTaskProgress: LongTaskProgress[];
   longUnscheduledTasks: CalendarTask[];

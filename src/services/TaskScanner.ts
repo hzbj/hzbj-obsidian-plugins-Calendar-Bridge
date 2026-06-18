@@ -7,23 +7,26 @@ export interface ScanTextOptions {
   readLegacyEmojiDates: boolean;
   forceExtract: boolean;
   phaseId?: string;
+  includedPathPrefixes?: string[];
   excludedPathPrefixes?: string[];
 }
 
 const CHECKBOX_RE = /^(\s*[-*]\s+\[)([ xX])(\]\s+)(.*)$/u;
 
 export function scanMarkdownTasksFromText(filePath: string, content: string, options: ScanTextOptions): CalendarTask[] {
+  if (!isIncludedPath(filePath, options.includedPathPrefixes ?? [])) return [];
   if (isExcludedPath(filePath, options.excludedPathPrefixes ?? [])) return [];
 
   const triggerType: TaskTriggerType = options.forceExtract ? "phase-note" : "inline";
-  return content.split(/\r?\n/u).flatMap((line, lineNumber) => {
-    const match = line.match(CHECKBOX_RE);
-    if (!match) return [];
-    const taskBody = match[4];
-    if (!options.forceExtract && !hasTriggerTag(taskBody, options.triggerTags)) return [];
+  const tasks: CalendarTask[] = [];
 
+  content.split(/\r?\n/u).forEach((line, lineNumber) => {
+    const match = line.match(CHECKBOX_RE);
+    if (!match) return;
     const metadata = extractTaskMetadata(line, options.readLegacyEmojiDates);
-    return [{
+    // Long-vs-point classification is intentionally owned by the start:: field only.
+    const taskKind = metadata.dates.start ? "long" : "point";
+    tasks.push({
       id: `${filePath}:${lineNumber}`,
       text: cleanTaskDisplayText(line, options.triggerTags),
       filePath,
@@ -33,11 +36,11 @@ export function scanMarkdownTasksFromText(filePath: string, content: string, opt
       metadata: metadata.metadata,
       dates: metadata.dates,
       dateSources: metadata.dateSources,
-      taskKind: metadata.spanStart && metadata.spanEnd ? "long" : "point",
+      taskKind,
       createdDate: metadata.createdDate,
       scheduleDate: metadata.scheduleDate,
-      spanStart: metadata.spanStart,
-      spanEnd: metadata.spanEnd,
+      spanStart: taskKind === "long" ? metadata.dates.start : undefined,
+      spanEnd: taskKind === "long" ? metadata.dates.due ?? metadata.dates.scheduled : undefined,
       estimateMinutes: metadata.estimateMinutes,
       plainEstimateMinutes: metadata.plainEstimateMinutes,
       progressPercent: metadata.progressPercent,
@@ -50,8 +53,10 @@ export function scanMarkdownTasksFromText(filePath: string, content: string, opt
       dateSource: metadata.dateSource,
       triggerType,
       phaseId: options.phaseId
-    }];
+    });
   });
+
+  return tasks;
 }
 
 export class TaskScanner {
@@ -62,38 +67,25 @@ export class TaskScanner {
     const tasks: CalendarTask[] = [];
 
     for (const file of this.app.vault.getMarkdownFiles()) {
+      if (!isIncludedPath(file.path, settings.includedPathPrefixes)) continue;
       if (isExcludedPath(file.path, settings.excludedPathPrefixes)) continue;
 
       const cache = this.app.metadataCache.getFileCache(file);
       const phaseInfo = getPhaseInfo(cache);
+      const isPhaseFile = phaseInfo.isPhaseNote || isPhaseTaskFilePath(file.path);
       const content = await this.app.vault.cachedRead(file);
       tasks.push(...scanMarkdownTasksFromText(file.path, content, {
         triggerTags: settings.triggerTags,
         readLegacyEmojiDates: settings.readLegacyEmojiDates,
-        forceExtract: phaseInfo.isPhaseNote,
+        forceExtract: isPhaseFile,
         phaseId: phaseInfo.phaseId,
+        includedPathPrefixes: settings.includedPathPrefixes,
         excludedPathPrefixes: settings.excludedPathPrefixes
       }));
     }
 
     return tasks;
   }
-}
-
-function hasTriggerTag(content: string, triggerTags: string[]): boolean {
-  for (const tag of triggerTags) {
-    const hashTag = `#${tag}`;
-    let searchFrom = 0;
-    while (true) {
-      const index = content.indexOf(hashTag, searchFrom);
-      if (index < 0) break;
-      const before = index === 0 ? " " : content[index - 1];
-      const after = content[index + hashTag.length] ?? " ";
-      if (/\s/u.test(before) && (/\s/u.test(after) || after === "#")) return true;
-      searchFrom = index + hashTag.length;
-    }
-  }
-  return false;
 }
 
 function getPhaseInfo(cache: CachedMetadata | null): { isPhaseNote: boolean; phaseId?: string } {
@@ -124,6 +116,22 @@ function extractFrontmatterTags(cache: CachedMetadata): string[] {
   return tags.map((tag) => tag.replace(/^#/, ""));
 }
 
+export function isPhaseTaskFilePath(filePath: string): boolean {
+  return filePath.split("/").includes("阶段");
+}
+
+function isIncludedPath(filePath: string, prefixes: string[]): boolean {
+  if (prefixes.length === 0) return true;
+  return prefixes.some((prefix) => matchesPathPrefix(filePath, prefix));
+}
+
 function isExcludedPath(filePath: string, prefixes: string[]): boolean {
-  return prefixes.some((prefix) => filePath === prefix.replace(/\/$/u, "") || filePath.startsWith(prefix));
+  return prefixes.some((prefix) => matchesPathPrefix(filePath, prefix));
+}
+
+function matchesPathPrefix(filePath: string, prefix: string): boolean {
+  const normalized = prefix.trim();
+  if (!normalized) return false;
+  const folder = normalized.replace(/\/$/u, "");
+  return filePath === folder || filePath.startsWith(`${folder}/`);
 }

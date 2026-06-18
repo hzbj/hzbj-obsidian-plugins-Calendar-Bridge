@@ -1,5 +1,6 @@
 import { PluginSettingTab, Setting } from "obsidian";
 import type PersonalSchedulerPlugin from "../../main";
+import { normalizePathSetting, splitPathCsv } from "../../utils/pathSettings";
 
 export class PersonalSystemSettingTab extends PluginSettingTab {
   constructor(private readonly plugin: PersonalSchedulerPlugin) {
@@ -12,8 +13,18 @@ export class PersonalSystemSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "Calendar Bridge" });
 
     new Setting(containerEl)
-      .setName("触发标签")
-      .setDesc("按 Task-Maker 语义扫描这些 checkbox 标签，使用逗号分隔。")
+      .setName("Task folders")
+      .setDesc("Only scan tasks from these folders. Separate multiple folders with commas; leave empty to scan the whole vault.")
+      .addText((text) => text
+        .setValue(this.plugin.data.settings.includedPathPrefixes.join(","))
+        .onChange(async (value) => {
+          this.plugin.data.settings.includedPathPrefixes = splitPathCsv(value, []);
+          await this.plugin.saveCalendarData();
+        }));
+
+    new Setting(containerEl)
+      .setName("Trigger tags")
+      .setDesc("Scan checkbox lines with these tags. Separate multiple tags with commas.")
       .addText((text) => text
         .setValue(this.plugin.data.settings.triggerTags.join(","))
         .onChange(async (value) => {
@@ -22,8 +33,8 @@ export class PersonalSystemSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
-      .setName("读取旧 emoji 日期")
-      .setDesc("兼容读取 📅 YYYY-MM-DD；重新排期写入 [scheduled:: YYYY-MM-DD]。")
+      .setName("Read legacy emoji dates")
+      .setDesc("Read legacy date tokens, but write Dataview fields when rescheduling.")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.data.settings.readLegacyEmojiDates)
         .onChange(async (value) => {
@@ -32,11 +43,11 @@ export class PersonalSystemSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
-      .setName("周起始日")
-      .setDesc("月视图与周视图共用。")
+      .setName("Week starts on")
+      .setDesc("Shared by month and week views.")
       .addDropdown((dropdown) => dropdown
-        .addOption("1", "周一")
-        .addOption("0", "周日")
+        .addOption("1", "Monday")
+        .addOption("0", "Sunday")
         .setValue(String(this.plugin.data.settings.weekStartsOn))
         .onChange(async (value) => {
           this.plugin.data.settings.weekStartsOn = value === "0" ? 0 : 1;
@@ -44,18 +55,28 @@ export class PersonalSystemSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
-      .setName("排除路径前缀")
-      .setDesc("不会扫描这些路径下的 Markdown，使用逗号分隔。")
+      .setName("Excluded folders")
+      .setDesc("Do not scan Markdown files under these folders. Separate multiple folders with commas.")
       .addText((text) => text
         .setValue(this.plugin.data.settings.excludedPathPrefixes.join(","))
         .onChange(async (value) => {
-          this.plugin.data.settings.excludedPathPrefixes = splitCsv(value, ["time-blocks-data/", ".obsidian/"]);
+          this.plugin.data.settings.excludedPathPrefixes = splitPathCsv(value, ["time-blocks-data/", ".obsidian/", ".trash/"]);
           await this.plugin.saveCalendarData();
         }));
 
     new Setting(containerEl)
-      .setName("spaced-review 压力")
-      .setDesc("只读 spaced-review 笔记，用复习数量和正文长度折算日负载。")
+      .setName("Scheduled day folder")
+      .setDesc("Point tasks scheduled from the month view move into YYYYMMDD.md files in this folder.")
+      .addText((text) => text
+        .setValue(this.plugin.data.settings.scheduledDayFolder)
+        .onChange(async (value) => {
+          this.plugin.data.settings.scheduledDayFolder = normalizePathSetting(value) || "Calendar/Scheduled";
+          await this.plugin.saveCalendarData();
+        }));
+
+    new Setting(containerEl)
+      .setName("spaced-review pressure")
+      .setDesc("Read spaced-review notes and include review pressure in calendar load.")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.data.settings.reviewPressureEnabled)
         .onChange(async (value) => {
@@ -64,8 +85,8 @@ export class PersonalSystemSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
-      .setName("复习基础分钟")
-      .setDesc("每篇复习笔记的固定估时。")
+      .setName("Review base minutes")
+      .setDesc("Fixed estimated minutes per review note.")
       .addText((text) => text
         .setValue(String(this.plugin.data.settings.reviewBaseMinutes))
         .onChange(async (value) => {
@@ -74,8 +95,8 @@ export class PersonalSystemSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
-      .setName("每分钟文字量")
-      .setDesc("正文字符数除以此值，再加基础分钟。")
+      .setName("Review chars per minute")
+      .setDesc("Body character count is divided by this value and added to the base minutes.")
       .addText((text) => text
         .setValue(String(this.plugin.data.settings.reviewCharsPerMinute))
         .onChange(async (value) => {
@@ -84,8 +105,8 @@ export class PersonalSystemSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
-      .setName("未估时任务默认分钟")
-      .setDesc("用于月视图热力和周汇总。")
+      .setName("Default task estimate minutes")
+      .setDesc("Used for heatmap and weekly pressure when a point task has no estimate.")
       .addText((text) => text
         .setValue(String(this.plugin.data.settings.defaultUnestimatedTaskMinutes))
         .onChange(async (value) => {
