@@ -444,6 +444,7 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
     const reason = getUnscheduledReason(task);
     return reason ? [{ ...task, unscheduledReason: reason }] : [];
   });
+  const childTasksByLongTaskId = buildChildTasksByLongTaskId(activeTasks);
   return {
     days,
     tasksByDate,
@@ -452,13 +453,24 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
     unifiedUnscheduledTasks,
     dayLoads,
     spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, todayStringFromAnchor(anchorDate)) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) : [],
     longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
     longUnscheduledTasks: longTasks.filter((task) => !task.spanStart || !task.spanEnd),
     longOverdueTasks: longTasks.filter((task) => isLongTaskOverdue(task, todayStringFromAnchor(anchorDate)))
   };
+}
+function buildChildTasksByLongTaskId(tasks) {
+  const byParent = /* @__PURE__ */ new Map();
+  for (const task of tasks) {
+    if (!task.parentLongTaskId || task.parentLongTaskId === task.id)
+      continue;
+    const children = byParent.get(task.parentLongTaskId) ?? [];
+    children.push(task);
+    byParent.set(task.parentLongTaskId, children);
+  }
+  return byParent;
 }
 function normalizePriorityRank(priority) {
   const normalized = normalizeTaskPriority(priority);
@@ -534,7 +546,7 @@ function buildLongTaskProgress(tasks, today) {
 function isLongTaskOverdue(task, today) {
   return Boolean(task.spanEnd && task.spanEnd < today && (task.progressPercent ?? 0) < 100);
 }
-function buildLongTaskTimelineRows(days, tasks, today) {
+function buildLongTaskTimelineRows(days, tasks, childTasksByLongTaskId, today) {
   const monthDays = days.filter((day) => day.inCurrentMonth);
   const first2 = monthDays[0]?.date;
   const last = monthDays[monthDays.length - 1]?.date;
@@ -559,6 +571,7 @@ function buildLongTaskTimelineRows(days, tasks, today) {
     const expectedProgressPercent = Math.min(100, Math.round(daysElapsed / totalDays * 100));
     return {
       task,
+      childTasks: childTasksByLongTaskId.get(task.id) ?? [],
       fullStartDate,
       fullEndDate,
       visibleStartDate,
@@ -994,14 +1007,21 @@ function scanMarkdownTasksFromText(filePath, content, options) {
     return [];
   const triggerType = options.forceExtract ? "phase-note" : "inline";
   const tasks = [];
+  const indentStack = [];
   content.split(/\r?\n/u).forEach((line, lineNumber) => {
     const match = line.match(CHECKBOX_RE);
     if (!match)
       return;
     const metadata = extractTaskMetadata(line, options.readLegacyEmojiDates);
     const taskKind = metadata.dates.start ? "long" : "point";
-    tasks.push({
-      id: `${filePath}:${lineNumber}`,
+    const id = `${filePath}:${lineNumber}`;
+    const indentLevel = countIndentColumns(line);
+    while (indentStack.length > 0 && indentStack[indentStack.length - 1].indentLevel >= indentLevel) {
+      indentStack.pop();
+    }
+    const parentLongTask = [...indentStack].reverse().find((item) => item.task.taskKind === "long")?.task;
+    const task = {
+      id,
       text: cleanTaskDisplayText(line, options.triggerTags),
       filePath,
       lineNumber,
@@ -1011,6 +1031,9 @@ function scanMarkdownTasksFromText(filePath, content, options) {
       dates: metadata.dates,
       dateSources: metadata.dateSources,
       taskKind,
+      indentLevel,
+      parentLongTaskId: parentLongTask?.id,
+      parentLongTaskText: parentLongTask?.text,
       createdDate: metadata.createdDate,
       scheduleDate: metadata.scheduleDate,
       spanStart: taskKind === "long" ? metadata.dates.start : void 0,
@@ -1027,9 +1050,15 @@ function scanMarkdownTasksFromText(filePath, content, options) {
       dateSource: metadata.dateSource,
       triggerType,
       phaseId: options.phaseId
-    });
+    };
+    tasks.push(task);
+    indentStack.push({ indentLevel, task });
   });
   return tasks;
+}
+function countIndentColumns(line) {
+  const indent = line.match(/^[\t ]*/u)?.[0] ?? "";
+  return [...indent].reduce((columns, char) => columns + (char === "	" ? 2 : 1), 0);
 }
 var TaskScanner = class {
   constructor(app, getSettings) {
@@ -1256,6 +1285,7 @@ function renderPointPoolTask(parent, plugin, task) {
   meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task) });
   if (task.estimateMinutes)
     meta.createSpan({ cls: "cb-chip", text: formatMinutes(task.estimateMinutes) });
+  renderParentLongTaskChip(meta, task);
   if (task.unscheduledReason)
     meta.createSpan({ cls: "cb-chip cb-chip-info", text: task.unscheduledReason });
 }
@@ -1389,7 +1419,8 @@ function buildLongTimelineRows(rows) {
     clippedStart: row.isClippedStart,
     clippedEnd: row.isClippedEnd,
     overdue: row.isOverdue,
-    status: row.status
+    status: row.status,
+    childTasks: row.childTasks
   }));
 }
 function assignVerticalTimelineLanes(rows) {
@@ -1438,6 +1469,34 @@ function renderLongVerticalTask(parent, plugin, row) {
     meta.createSpan({ cls: "cb-chip cb-chip-info", text: "continues" });
   if (row.status)
     meta.createSpan({ cls: "cb-chip", text: row.status });
+  renderLongTaskChildren(bar, row.childTasks);
+}
+function renderLongTaskChildren(parent, childTasks) {
+  if (childTasks.length === 0)
+    return;
+  const list = parent.createDiv({ cls: "cb-long-child-list" });
+  for (const child of childTasks) {
+    const item = list.createDiv({ cls: "cb-long-child-item" });
+    item.createSpan({ cls: "cb-long-child-title", text: childTaskContentLabel(child) });
+    const schedule = childTaskScheduleLabel(child);
+    if (schedule)
+      item.createSpan({ cls: "cb-long-child-time", text: schedule });
+  }
+}
+function renderParentLongTaskChip(parent, task) {
+  if (!task.parentLongTaskText)
+    return;
+  parent.createSpan({ cls: "cb-chip cb-parent-long-task-chip", text: `Parent: ${task.parentLongTaskText}` });
+}
+function childTaskScheduleLabel(task) {
+  if (task.taskKind === "long" && task.spanStart && task.spanEnd)
+    return `${shortDate(task.spanStart)} - ${shortDate(task.spanEnd)}`;
+  if (task.scheduleDate)
+    return shortDate(task.scheduleDate);
+  return void 0;
+}
+function childTaskContentLabel(task) {
+  return cleanTaskContentText(task.rawLine) || task.text;
 }
 function setupTimelineDateTarget(target, plugin, date, viewMode, rerender) {
   if (viewMode === "long") {
@@ -1879,12 +1938,18 @@ function renderPoolTask(parent, plugin, task) {
   const meta = card.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel2(task) });
   meta.createSpan({ cls: "cb-chip", text: task.estimateMinutes ? formatMinutes2(task.estimateMinutes) : "no estimate" });
+  renderParentLongTaskChip2(meta, task);
   if (task.unscheduledReason)
     meta.createSpan({ cls: "cb-chip cb-chip-info", text: task.unscheduledReason });
   if (task.filePath)
     card.createDiv({ cls: "cb-muted", text: task.filePath });
   const actions = card.createDiv({ cls: "cb-task-actions cb-inline-actions" });
   renderEstimateControl(actions, plugin, task);
+}
+function renderParentLongTaskChip2(parent, task) {
+  if (!task.parentLongTaskText)
+    return;
+  parent.createSpan({ cls: "cb-chip cb-parent-long-task-chip", text: `Parent: ${task.parentLongTaskText}` });
 }
 function renderScheduledTaskName(parent, task) {
   const row = parent.createDiv({ cls: `cb-week-task-name ${priorityClass2(task)}` });

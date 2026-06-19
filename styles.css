@@ -296,6 +296,10 @@
   white-space: nowrap;
 }
 
+.cb-parent-long-task-chip {
+  max-width: 100%;
+}
+
 .cb-chip-danger {
   color: var(--text-error);
   background: color-mix(in srgb, var(--background-primary) 72%, var(--text-error));
@@ -718,6 +722,35 @@
 
 .cb-long-vertical-bar .cb-chip {
   background: color-mix(in srgb, var(--background-modifier-border) 82%, transparent);
+}
+
+.cb-long-child-list {
+  display: grid;
+  gap: 3px;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid var(--cb-border);
+}
+
+.cb-long-child-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  color: var(--cb-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.cb-long-child-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cb-long-child-time {
+  white-space: nowrap;
 }
 
 .cb-long-vertical-bar.is-clipped-start {

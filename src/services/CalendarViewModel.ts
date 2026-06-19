@@ -91,6 +91,7 @@ function buildViewModel(
     const reason = getUnscheduledReason(task);
     return reason ? [{ ...task, unscheduledReason: reason }] : [];
   });
+  const childTasksByLongTaskId = buildChildTasksByLongTaskId(activeTasks);
 
   return {
     days,
@@ -100,13 +101,24 @@ function buildViewModel(
     unifiedUnscheduledTasks,
     dayLoads,
     spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, todayStringFromAnchor(anchorDate)) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) : [],
     longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
     longUnscheduledTasks: longTasks.filter((task) => !task.spanStart || !task.spanEnd),
     longOverdueTasks: longTasks.filter((task) => isLongTaskOverdue(task, todayStringFromAnchor(anchorDate)))
   };
+}
+
+function buildChildTasksByLongTaskId(tasks: CalendarTask[]): Map<string, CalendarTask[]> {
+  const byParent = new Map<string, CalendarTask[]>();
+  for (const task of tasks) {
+    if (!task.parentLongTaskId || task.parentLongTaskId === task.id) continue;
+    const children = byParent.get(task.parentLongTaskId) ?? [];
+    children.push(task);
+    byParent.set(task.parentLongTaskId, children);
+  }
+  return byParent;
 }
 
 export function normalizePriorityRank(priority: string | undefined): 1 | 2 | 3 | 4 {
@@ -187,7 +199,12 @@ function isLongTaskOverdue(task: CalendarTask, today: string): boolean {
   return Boolean(task.spanEnd && task.spanEnd < today && (task.progressPercent ?? 0) < 100);
 }
 
-function buildLongTaskTimelineRows(days: CalendarDay[], tasks: CalendarTask[], today: string): LongTaskTimelineRow[] {
+function buildLongTaskTimelineRows(
+  days: CalendarDay[],
+  tasks: CalendarTask[],
+  childTasksByLongTaskId: Map<string, CalendarTask[]>,
+  today: string
+): LongTaskTimelineRow[] {
   const monthDays = days.filter((day) => day.inCurrentMonth);
   const first = monthDays[0]?.date;
   const last = monthDays[monthDays.length - 1]?.date;
@@ -213,6 +230,7 @@ function buildLongTaskTimelineRows(days: CalendarDay[], tasks: CalendarTask[], t
       const expectedProgressPercent = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
       return {
         task,
+        childTasks: childTasksByLongTaskId.get(task.id) ?? [],
         fullStartDate,
         fullEndDate,
         visibleStartDate,

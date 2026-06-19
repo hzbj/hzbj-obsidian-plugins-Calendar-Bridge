@@ -4,7 +4,7 @@ import type { CalendarSpanBar, CalendarTask, CalendarViewModel, MonthTaskViewMod
 import { buildMonthViewModel, buildSourceTaskGroups } from "../../services/CalendarViewModel";
 import { buildLongTimelineDisplay, type LongTimelineDisplayDay } from "../../services/LongTaskTimelineDisplay";
 import { addDays, todayString } from "../../utils/date";
-import { normalizeTaskPriority, parseDurationToMinutes } from "../../utils/DataviewTaskDate";
+import { cleanTaskContentText, normalizeTaskPriority, parseDurationToMinutes } from "../../utils/DataviewTaskDate";
 
 interface CalendarPageContext {
   anchorDate: string;
@@ -22,6 +22,7 @@ interface TimelineRow {
   clippedEnd: boolean;
   overdue: boolean;
   status?: string;
+  childTasks: CalendarTask[];
 }
 
 let longRangeDraft: { taskId: string; startDate?: string } | null = null;
@@ -119,6 +120,7 @@ function renderPointPoolTask(parent: HTMLElement, plugin: PersonalSchedulerPlugi
   const meta = card.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task) });
   if (task.estimateMinutes) meta.createSpan({ cls: "cb-chip", text: formatMinutes(task.estimateMinutes) });
+  renderParentLongTaskChip(meta, task);
   if (task.unscheduledReason) meta.createSpan({ cls: "cb-chip cb-chip-info", text: task.unscheduledReason });
 }
 
@@ -277,7 +279,8 @@ function buildLongTimelineRows(rows: CalendarViewModel["longTaskTimelineRows"]):
     clippedStart: row.isClippedStart,
     clippedEnd: row.isClippedEnd,
     overdue: row.isOverdue,
-    status: row.status
+    status: row.status,
+    childTasks: row.childTasks
   }));
 }
 
@@ -339,6 +342,33 @@ function renderLongVerticalTask(
   meta.createSpan({ cls: "cb-chip", text: `progress ${row.task.progressPercent ?? 0}%` });
   if (row.clippedStart || row.clippedEnd) meta.createSpan({ cls: "cb-chip cb-chip-info", text: "continues" });
   if (row.status) meta.createSpan({ cls: "cb-chip", text: row.status });
+  renderLongTaskChildren(bar, row.childTasks);
+}
+
+function renderLongTaskChildren(parent: HTMLElement, childTasks: CalendarTask[]): void {
+  if (childTasks.length === 0) return;
+  const list = parent.createDiv({ cls: "cb-long-child-list" });
+  for (const child of childTasks) {
+    const item = list.createDiv({ cls: "cb-long-child-item" });
+    item.createSpan({ cls: "cb-long-child-title", text: childTaskContentLabel(child) });
+    const schedule = childTaskScheduleLabel(child);
+    if (schedule) item.createSpan({ cls: "cb-long-child-time", text: schedule });
+  }
+}
+
+function renderParentLongTaskChip(parent: HTMLElement, task: CalendarTask): void {
+  if (!task.parentLongTaskText) return;
+  parent.createSpan({ cls: "cb-chip cb-parent-long-task-chip", text: `Parent: ${task.parentLongTaskText}` });
+}
+
+function childTaskScheduleLabel(task: CalendarTask): string | undefined {
+  if (task.taskKind === "long" && task.spanStart && task.spanEnd) return `${shortDate(task.spanStart)} - ${shortDate(task.spanEnd)}`;
+  if (task.scheduleDate) return shortDate(task.scheduleDate);
+  return undefined;
+}
+
+function childTaskContentLabel(task: CalendarTask): string {
+  return cleanTaskContentText(task.rawLine) || task.text;
 }
 
 function setupTimelineDateTarget(target: HTMLElement, plugin: PersonalSchedulerPlugin, date: string, viewMode: MonthTaskViewMode, rerender: () => void): void {

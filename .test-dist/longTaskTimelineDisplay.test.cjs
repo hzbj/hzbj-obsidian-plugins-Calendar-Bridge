@@ -103,6 +103,7 @@ function monthDays(anchorDate) {
 function row(id, visibleStartDate, visibleEndDate) {
   return {
     task: { id },
+    childTasks: [],
     fullStartDate: visibleStartDate,
     fullEndDate: visibleEndDate,
     visibleStartDate,

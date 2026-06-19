@@ -96,6 +96,7 @@ function task(
     dates,
     dateSources: {},
     taskKind: isLong ? "long" : "point",
+    indentLevel: options.indentLevel ?? 0,
     createdDate: dates.created,
     progressPercent: options.progressPercent ?? 0,
     scheduleDate,

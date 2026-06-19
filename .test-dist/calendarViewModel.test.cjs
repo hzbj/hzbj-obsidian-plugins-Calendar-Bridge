@@ -125,6 +125,7 @@ function buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnesti
     const reason = getUnscheduledReason(task2);
     return reason ? [{ ...task2, unscheduledReason: reason }] : [];
   });
+  const childTasksByLongTaskId = buildChildTasksByLongTaskId(activeTasks);
   return {
     days,
     tasksByDate,
@@ -133,13 +134,24 @@ function buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnesti
     unifiedUnscheduledTasks,
     dayLoads,
     spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, todayStringFromAnchor(anchorDate)) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure2, dayLoads) : [],
     longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
     longUnscheduledTasks: longTasks.filter((task2) => !task2.spanStart || !task2.spanEnd),
     longOverdueTasks: longTasks.filter((task2) => isLongTaskOverdue(task2, todayStringFromAnchor(anchorDate)))
   };
+}
+function buildChildTasksByLongTaskId(tasks2) {
+  const byParent = /* @__PURE__ */ new Map();
+  for (const task2 of tasks2) {
+    if (!task2.parentLongTaskId || task2.parentLongTaskId === task2.id)
+      continue;
+    const children = byParent.get(task2.parentLongTaskId) ?? [];
+    children.push(task2);
+    byParent.set(task2.parentLongTaskId, children);
+  }
+  return byParent;
 }
 function normalizePriorityRank(priority) {
   const normalized = normalizeTaskPriority(priority);
@@ -215,7 +227,7 @@ function buildLongTaskProgress(tasks2, today) {
 function isLongTaskOverdue(task2, today) {
   return Boolean(task2.spanEnd && task2.spanEnd < today && (task2.progressPercent ?? 0) < 100);
 }
-function buildLongTaskTimelineRows(days, tasks2, today) {
+function buildLongTaskTimelineRows(days, tasks2, childTasksByLongTaskId, today) {
   const monthDays = days.filter((day) => day.inCurrentMonth);
   const first = monthDays[0]?.date;
   const last = monthDays[monthDays.length - 1]?.date;
@@ -240,6 +252,7 @@ function buildLongTaskTimelineRows(days, tasks2, today) {
     const expectedProgressPercent = Math.min(100, Math.round(daysElapsed / totalDays * 100));
     return {
       task: task2,
+      childTasks: childTasksByLongTaskId.get(task2.id) ?? [],
       fullStartDate,
       fullEndDate,
       visibleStartDate,
@@ -516,6 +529,21 @@ var reviewPressure = {
     { id: "l2", visibleStartDate: "2026-06-10", visibleEndDate: "2026-06-20", startDay: 10, endDay: 20, isOverdue: false }
   ]);
 });
+(0, import_node_test.test)("attaches active indented child tasks to their parent long task timeline row", () => {
+  const longTasks = [
+    task("l1", "Parent long", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
+    task("p1", "Unscheduled child", {}, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("p2", "Scheduled child", { scheduled: "2026-06-12" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("l2", "Child long", { start: "2026-06-13", due: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("d1", "Done child", {}, { completed: true, parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("p3", "Other child", {}, { parentLongTaskId: "missing", parentLongTaskText: "Missing" })
+  ];
+  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
+  const parentRow = model.longTaskTimelineRows.find((row) => row.task.id === "l1");
+  import_node_assert.strict.deepEqual(parentRow?.childTasks.map((item) => item.id), ["p1", "p2", "l2"]);
+  import_node_assert.strict.equal(parentRow?.childTasks.some((item) => item.id === "l1"), false);
+  import_node_assert.strict.equal(parentRow?.childTasks.some((item) => item.completed), false);
+});
 (0, import_node_test.test)("assigns overlapping long task bars to independent layout rows", () => {
   const longTasks = [
     task("l1", "Long A", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
@@ -586,6 +614,7 @@ function task(id, text, dates = {}, options = {}) {
     dates,
     dateSources: {},
     taskKind: isLong ? "long" : "point",
+    indentLevel: options.indentLevel ?? 0,
     createdDate: dates.created,
     progressPercent: 0,
     scheduleDate,

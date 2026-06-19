@@ -129,10 +129,16 @@ function renderPoolTask(parent: HTMLElement, plugin: PersonalSchedulerPlugin, ta
   const meta = card.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task) });
   meta.createSpan({ cls: "cb-chip", text: task.estimateMinutes ? formatMinutes(task.estimateMinutes) : "no estimate" });
+  renderParentLongTaskChip(meta, task);
   if (task.unscheduledReason) meta.createSpan({ cls: "cb-chip cb-chip-info", text: task.unscheduledReason });
   if (task.filePath) card.createDiv({ cls: "cb-muted", text: task.filePath });
   const actions = card.createDiv({ cls: "cb-task-actions cb-inline-actions" });
   renderEstimateControl(actions, plugin, task);
+}
+
+function renderParentLongTaskChip(parent: HTMLElement, task: CalendarTask): void {
+  if (!task.parentLongTaskText) return;
+  parent.createSpan({ cls: "cb-chip cb-parent-long-task-chip", text: `Parent: ${task.parentLongTaskText}` });
 }
 
 function renderScheduledTaskName(parent: HTMLElement, task: CalendarTask): void {

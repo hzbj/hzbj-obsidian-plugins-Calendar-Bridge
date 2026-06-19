@@ -47,3 +47,11 @@ var import_node_test = require("node:test");
   import_node_assert.strict.match(source, /function isTaskVisibleInPool/);
   import_node_assert.strict.match(source, /task\.taskKind === "long" \|\| task\.triggerType !== "phase-note"/);
 });
+(0, import_node_test.test)("renders parent long-task labels in point pools and child tasks inside long-task bars", () => {
+  const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
+  import_node_assert.strict.match(source, /function renderParentLongTaskChip/);
+  import_node_assert.strict.match(source, /renderParentLongTaskChip\(meta, task\)/);
+  import_node_assert.strict.match(source, /function renderLongTaskChildren/);
+  import_node_assert.strict.match(source, /renderLongTaskChildren\(bar, row\.childTasks\)/);
+  import_node_assert.strict.match(source, /function childTaskScheduleLabel/);
+});

@@ -19,6 +19,7 @@ export function scanMarkdownTasksFromText(filePath: string, content: string, opt
 
   const triggerType: TaskTriggerType = options.forceExtract ? "phase-note" : "inline";
   const tasks: CalendarTask[] = [];
+  const indentStack: Array<{ indentLevel: number; task: CalendarTask }> = [];
 
   content.split(/\r?\n/u).forEach((line, lineNumber) => {
     const match = line.match(CHECKBOX_RE);
@@ -26,8 +27,14 @@ export function scanMarkdownTasksFromText(filePath: string, content: string, opt
     const metadata = extractTaskMetadata(line, options.readLegacyEmojiDates);
     // Long-vs-point classification is intentionally owned by the start:: field only.
     const taskKind = metadata.dates.start ? "long" : "point";
-    tasks.push({
-      id: `${filePath}:${lineNumber}`,
+    const id = `${filePath}:${lineNumber}`;
+    const indentLevel = countIndentColumns(line);
+    while (indentStack.length > 0 && indentStack[indentStack.length - 1].indentLevel >= indentLevel) {
+      indentStack.pop();
+    }
+    const parentLongTask = [...indentStack].reverse().find((item) => item.task.taskKind === "long")?.task;
+    const task: CalendarTask = {
+      id,
       text: cleanTaskDisplayText(line, options.triggerTags),
       filePath,
       lineNumber,
@@ -37,6 +44,9 @@ export function scanMarkdownTasksFromText(filePath: string, content: string, opt
       dates: metadata.dates,
       dateSources: metadata.dateSources,
       taskKind,
+      indentLevel,
+      parentLongTaskId: parentLongTask?.id,
+      parentLongTaskText: parentLongTask?.text,
       createdDate: metadata.createdDate,
       scheduleDate: metadata.scheduleDate,
       spanStart: taskKind === "long" ? metadata.dates.start : undefined,
@@ -53,10 +63,17 @@ export function scanMarkdownTasksFromText(filePath: string, content: string, opt
       dateSource: metadata.dateSource,
       triggerType,
       phaseId: options.phaseId
-    });
+    };
+    tasks.push(task);
+    indentStack.push({ indentLevel, task });
   });
 
   return tasks;
+}
+
+function countIndentColumns(line: string): number {
+  const indent = line.match(/^[\t ]*/u)?.[0] ?? "";
+  return [...indent].reduce((columns, char) => columns + (char === "\t" ? 2 : 1), 0);
 }
 
 export class TaskScanner {

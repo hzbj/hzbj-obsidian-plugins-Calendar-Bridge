@@ -16,3 +16,9 @@ var import_node_test = require("node:test");
   import_node_assert.strict.match(source, /cleanTaskContentText\(task\.rawLine\)/);
   import_node_assert.strict.doesNotMatch(source, /Before anchor/);
 });
+(0, import_node_test.test)("renders parent long-task labels on week unscheduled child tasks", () => {
+  const source = (0, import_node_fs.readFileSync)("src/ui/pages/WeekPage.ts", "utf8");
+  import_node_assert.strict.match(source, /function renderParentLongTaskChip/);
+  import_node_assert.strict.match(source, /renderParentLongTaskChip\(meta, task\)/);
+  import_node_assert.strict.match(source, /parentLongTaskText/);
+});

@@ -162,6 +162,24 @@ test("builds current-month long task timeline rows including overdue and clipped
   ]);
 });
 
+test("attaches active indented child tasks to their parent long task timeline row", () => {
+  const longTasks: CalendarTask[] = [
+    task("l1", "Parent long", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
+    task("p1", "Unscheduled child", {}, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("p2", "Scheduled child", { scheduled: "2026-06-12" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("l2", "Child long", { start: "2026-06-13", due: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("d1", "Done child", {}, { completed: true, parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("p3", "Other child", {}, { parentLongTaskId: "missing", parentLongTaskText: "Missing" })
+  ];
+
+  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
+  const parentRow = model.longTaskTimelineRows.find((row) => row.task.id === "l1");
+
+  assert.deepEqual(parentRow?.childTasks.map((item) => item.id), ["p1", "p2", "l2"]);
+  assert.equal(parentRow?.childTasks.some((item) => item.id === "l1"), false);
+  assert.equal(parentRow?.childTasks.some((item) => item.completed), false);
+});
+
 test("assigns overlapping long task bars to independent layout rows", () => {
   const longTasks: CalendarTask[] = [
     task("l1", "Long A", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
@@ -244,6 +262,7 @@ function task(
     dates,
     dateSources: {},
     taskKind: isLong ? "long" : "point",
+    indentLevel: options.indentLevel ?? 0,
     createdDate: dates.created,
     progressPercent: 0,
     scheduleDate,

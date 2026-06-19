@@ -102,6 +102,7 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
     const reason = getUnscheduledReason(task2);
     return reason ? [{ ...task2, unscheduledReason: reason }] : [];
   });
+  const childTasksByLongTaskId = buildChildTasksByLongTaskId(activeTasks);
   return {
     days,
     tasksByDate,
@@ -110,13 +111,24 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
     unifiedUnscheduledTasks,
     dayLoads,
     spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, todayStringFromAnchor(anchorDate)) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) : [],
     longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
     longUnscheduledTasks: longTasks.filter((task2) => !task2.spanStart || !task2.spanEnd),
     longOverdueTasks: longTasks.filter((task2) => isLongTaskOverdue(task2, todayStringFromAnchor(anchorDate)))
   };
+}
+function buildChildTasksByLongTaskId(tasks) {
+  const byParent = /* @__PURE__ */ new Map();
+  for (const task2 of tasks) {
+    if (!task2.parentLongTaskId || task2.parentLongTaskId === task2.id)
+      continue;
+    const children = byParent.get(task2.parentLongTaskId) ?? [];
+    children.push(task2);
+    byParent.set(task2.parentLongTaskId, children);
+  }
+  return byParent;
 }
 function normalizePriorityRank(priority) {
   const normalized = normalizeTaskPriority(priority);
@@ -192,7 +204,7 @@ function buildLongTaskProgress(tasks, today) {
 function isLongTaskOverdue(task2, today) {
   return Boolean(task2.spanEnd && task2.spanEnd < today && (task2.progressPercent ?? 0) < 100);
 }
-function buildLongTaskTimelineRows(days, tasks, today) {
+function buildLongTaskTimelineRows(days, tasks, childTasksByLongTaskId, today) {
   const monthDays = days.filter((day) => day.inCurrentMonth);
   const first = monthDays[0]?.date;
   const last = monthDays[monthDays.length - 1]?.date;
@@ -217,6 +229,7 @@ function buildLongTaskTimelineRows(days, tasks, today) {
     const expectedProgressPercent = Math.min(100, Math.round(daysElapsed / totalDays * 100));
     return {
       task: task2,
+      childTasks: childTasksByLongTaskId.get(task2.id) ?? [],
       fullStartDate,
       fullEndDate,
       visibleStartDate,
@@ -541,6 +554,7 @@ function task(id, text, dates = {}, options = {}) {
     dates,
     dateSources: {},
     taskKind: isLong ? "long" : "point",
+    indentLevel: options.indentLevel ?? 0,
     createdDate: dates.created,
     progressPercent: options.progressPercent ?? 0,
     scheduleDate,

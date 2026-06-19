@@ -142,14 +142,21 @@ function scanMarkdownTasksFromText(filePath, content, options) {
     return [];
   const triggerType = options.forceExtract ? "phase-note" : "inline";
   const tasks = [];
+  const indentStack = [];
   content.split(/\r?\n/u).forEach((line, lineNumber) => {
     const match = line.match(CHECKBOX_RE);
     if (!match)
       return;
     const metadata = extractTaskMetadata(line, options.readLegacyEmojiDates);
     const taskKind = metadata.dates.start ? "long" : "point";
-    tasks.push({
-      id: `${filePath}:${lineNumber}`,
+    const id = `${filePath}:${lineNumber}`;
+    const indentLevel = countIndentColumns(line);
+    while (indentStack.length > 0 && indentStack[indentStack.length - 1].indentLevel >= indentLevel) {
+      indentStack.pop();
+    }
+    const parentLongTask = [...indentStack].reverse().find((item) => item.task.taskKind === "long")?.task;
+    const task = {
+      id,
       text: cleanTaskDisplayText(line, options.triggerTags),
       filePath,
       lineNumber,
@@ -159,6 +166,9 @@ function scanMarkdownTasksFromText(filePath, content, options) {
       dates: metadata.dates,
       dateSources: metadata.dateSources,
       taskKind,
+      indentLevel,
+      parentLongTaskId: parentLongTask?.id,
+      parentLongTaskText: parentLongTask?.text,
       createdDate: metadata.createdDate,
       scheduleDate: metadata.scheduleDate,
       spanStart: taskKind === "long" ? metadata.dates.start : void 0,
@@ -175,9 +185,15 @@ function scanMarkdownTasksFromText(filePath, content, options) {
       dateSource: metadata.dateSource,
       triggerType,
       phaseId: options.phaseId
-    });
+    };
+    tasks.push(task);
+    indentStack.push({ indentLevel, task });
   });
   return tasks;
+}
+function countIndentColumns(line) {
+  const indent = line.match(/^[\t ]*/u)?.[0] ?? "";
+  return [...indent].reduce((columns, char) => columns + (char === "	" ? 2 : 1), 0);
 }
 function isPhaseTaskFilePath(filePath) {
   return filePath.split("/").includes("\u9636\u6BB5");
@@ -300,6 +316,40 @@ function matchesPathPrefix(filePath, prefix) {
     { text: "Character design", kind: "point", phaseId: "youxi" },
     { text: "Collect references", kind: "point", phaseId: "youxi" },
     { text: "Architecture review", kind: "long", phaseId: "youxi" }
+  ]);
+});
+(0, import_node_test.test)("assigns indented descendants to the nearest parent long task", () => {
+  const tasks = scanMarkdownTasksFromText(
+    "Plans.md",
+    [
+      "- [ ] Parent A [start:: 2026-06-10] [due:: 2026-06-20]",
+      "  - [ ] Child point",
+      "    - [ ] Grandchild point [scheduled:: 2026-06-13]",
+      "  - [ ] Child long [start:: 2026-06-14] [due:: 2026-06-16]",
+      "    - [ ] Nested under child long",
+      "- [ ] Peer point",
+      "  - [ ] No parent long child",
+      "- [ ] Parent B [start:: 2026-07-01] [due:: 2026-07-10]",
+      "	- [ ] Tab child"
+    ].join("\n"),
+    { triggerTags: ["task"], readLegacyEmojiDates: true, forceExtract: false }
+  );
+  import_node_assert.strict.deepEqual(tasks.map((item) => ({
+    id: item.id,
+    indentLevel: item.indentLevel,
+    parentLongTaskId: item.parentLongTaskId,
+    parentLongTaskText: item.parentLongTaskText,
+    taskKind: item.taskKind
+  })), [
+    { id: "Plans.md:0", indentLevel: 0, parentLongTaskId: void 0, parentLongTaskText: void 0, taskKind: "long" },
+    { id: "Plans.md:1", indentLevel: 2, parentLongTaskId: "Plans.md:0", parentLongTaskText: "Parent A", taskKind: "point" },
+    { id: "Plans.md:2", indentLevel: 4, parentLongTaskId: "Plans.md:0", parentLongTaskText: "Parent A", taskKind: "point" },
+    { id: "Plans.md:3", indentLevel: 2, parentLongTaskId: "Plans.md:0", parentLongTaskText: "Parent A", taskKind: "long" },
+    { id: "Plans.md:4", indentLevel: 4, parentLongTaskId: "Plans.md:3", parentLongTaskText: "Child long", taskKind: "point" },
+    { id: "Plans.md:5", indentLevel: 0, parentLongTaskId: void 0, parentLongTaskText: void 0, taskKind: "point" },
+    { id: "Plans.md:6", indentLevel: 2, parentLongTaskId: void 0, parentLongTaskText: void 0, taskKind: "point" },
+    { id: "Plans.md:7", indentLevel: 0, parentLongTaskId: void 0, parentLongTaskText: void 0, taskKind: "long" },
+    { id: "Plans.md:8", indentLevel: 2, parentLongTaskId: "Plans.md:7", parentLongTaskText: "Parent B", taskKind: "point" }
   ]);
 });
 (0, import_node_test.test)("recognizes files inside phase folders as phase task files", () => {

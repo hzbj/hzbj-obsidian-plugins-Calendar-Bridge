@@ -22,6 +22,9 @@ export interface CalendarTask {
   dates: TaskDateMap;
   dateSources?: TaskDateSourceMap;
   taskKind: CalendarTaskKind;
+  indentLevel: number;
+  parentLongTaskId?: string;
+  parentLongTaskText?: string;
   createdDate?: string;
   scheduleDate?: string;
   spanStart?: string;
@@ -130,6 +133,7 @@ export interface LongTaskProgress {
 
 export interface LongTaskTimelineRow {
   task: CalendarTask;
+  childTasks: CalendarTask[];
   fullStartDate: string;
   fullEndDate: string;
   visibleStartDate: string;

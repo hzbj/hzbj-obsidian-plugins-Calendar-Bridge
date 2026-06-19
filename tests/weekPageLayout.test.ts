@@ -17,3 +17,11 @@ test("renders week unscheduled pool with source grouping, sorting, and priority 
   assert.match(source, /cleanTaskContentText\(task\.rawLine\)/);
   assert.doesNotMatch(source, /Before anchor/);
 });
+
+test("renders parent long-task labels on week unscheduled child tasks", () => {
+  const source = readFileSync("src/ui/pages/WeekPage.ts", "utf8");
+
+  assert.match(source, /function renderParentLongTaskChip/);
+  assert.match(source, /renderParentLongTaskChip\(meta, task\)/);
+  assert.match(source, /parentLongTaskText/);
+});

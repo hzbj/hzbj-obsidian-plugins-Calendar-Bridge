@@ -11,6 +11,7 @@ function monthDays(anchorDate: string) {
 function row(id: string, visibleStartDate: string, visibleEndDate: string): LongTaskTimelineRow {
   return {
     task: { id } as any,
+    childTasks: [],
     fullStartDate: visibleStartDate,
     fullEndDate: visibleEndDate,
     visibleStartDate,

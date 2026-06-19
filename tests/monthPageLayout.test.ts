@@ -56,3 +56,13 @@ test("lets long-task month pool include ordinary unscheduled candidates but not 
   assert.match(source, /function isTaskVisibleInPool/);
   assert.match(source, /task\.taskKind === "long" \|\| task\.triggerType !== "phase-note"/);
 });
+
+test("renders parent long-task labels in point pools and child tasks inside long-task bars", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+
+  assert.match(source, /function renderParentLongTaskChip/);
+  assert.match(source, /renderParentLongTaskChip\(meta, task\)/);
+  assert.match(source, /function renderLongTaskChildren/);
+  assert.match(source, /renderLongTaskChildren\(bar, row\.childTasks\)/);
+  assert.match(source, /function childTaskScheduleLabel/);
+});

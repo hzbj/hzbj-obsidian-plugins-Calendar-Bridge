@@ -117,6 +117,42 @@ test("does not use phase-note nesting to classify long tasks", () => {
   ]);
 });
 
+test("assigns indented descendants to the nearest parent long task", () => {
+  const tasks = scanMarkdownTasksFromText(
+    "Plans.md",
+    [
+      "- [ ] Parent A [start:: 2026-06-10] [due:: 2026-06-20]",
+      "  - [ ] Child point",
+      "    - [ ] Grandchild point [scheduled:: 2026-06-13]",
+      "  - [ ] Child long [start:: 2026-06-14] [due:: 2026-06-16]",
+      "    - [ ] Nested under child long",
+      "- [ ] Peer point",
+      "  - [ ] No parent long child",
+      "- [ ] Parent B [start:: 2026-07-01] [due:: 2026-07-10]",
+      "\t- [ ] Tab child"
+    ].join("\n"),
+    { triggerTags: ["task"], readLegacyEmojiDates: true, forceExtract: false }
+  );
+
+  assert.deepEqual(tasks.map((item) => ({
+    id: item.id,
+    indentLevel: item.indentLevel,
+    parentLongTaskId: item.parentLongTaskId,
+    parentLongTaskText: item.parentLongTaskText,
+    taskKind: item.taskKind
+  })), [
+    { id: "Plans.md:0", indentLevel: 0, parentLongTaskId: undefined, parentLongTaskText: undefined, taskKind: "long" },
+    { id: "Plans.md:1", indentLevel: 2, parentLongTaskId: "Plans.md:0", parentLongTaskText: "Parent A", taskKind: "point" },
+    { id: "Plans.md:2", indentLevel: 4, parentLongTaskId: "Plans.md:0", parentLongTaskText: "Parent A", taskKind: "point" },
+    { id: "Plans.md:3", indentLevel: 2, parentLongTaskId: "Plans.md:0", parentLongTaskText: "Parent A", taskKind: "long" },
+    { id: "Plans.md:4", indentLevel: 4, parentLongTaskId: "Plans.md:3", parentLongTaskText: "Child long", taskKind: "point" },
+    { id: "Plans.md:5", indentLevel: 0, parentLongTaskId: undefined, parentLongTaskText: undefined, taskKind: "point" },
+    { id: "Plans.md:6", indentLevel: 2, parentLongTaskId: undefined, parentLongTaskText: undefined, taskKind: "point" },
+    { id: "Plans.md:7", indentLevel: 0, parentLongTaskId: undefined, parentLongTaskText: undefined, taskKind: "long" },
+    { id: "Plans.md:8", indentLevel: 2, parentLongTaskId: "Plans.md:7", parentLongTaskText: "Parent B", taskKind: "point" }
+  ]);
+});
+
 test("recognizes files inside phase folders as phase task files", () => {
   assert.equal(isPhaseTaskFilePath("规划/阶段/腾讯创作大赛.md"), true);
   assert.equal(isPhaseTaskFilePath("规划/代办/未排期任务池.md"), false);
