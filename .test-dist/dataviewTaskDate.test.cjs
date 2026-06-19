@@ -7,6 +7,7 @@ var INLINE_FIELD_RE = /\[([^\[\]\n:]+)::\s*([^\]\n]*)\]/gu;
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
 var LEGACY_EMOJI_DATE_RE = /\s*(?:📅|馃搮)\s*(\d{4}-\d{2}-\d{2})\s*/u;
 var DATE_FIELDS = ["due", "scheduled", "start", "completion", "created"];
+var LONG_TASK_SYNC_TAG = "#\u957F\u4EFB\u52A1";
 function extractTaskMetadata(line, readLegacyEmojiDates) {
   const metadata = {};
   const dates = {};
@@ -88,7 +89,8 @@ function setPointTaskSchedule(line, scheduledDate, defaultEstimateMinutes, creat
   return appendField(appendField(updated, "scheduled", scheduledDate), "due", scheduledDate);
 }
 function setTaskSpanDates(line, startDate, scheduledDate) {
-  return appendField(appendField(removeFields(line, ["start", "scheduled", "due"]), "start", startDate), "due", scheduledDate);
+  const taggedLine = ensureTag(line, LONG_TASK_SYNC_TAG);
+  return appendField(appendField(removeFields(taggedLine, ["start", "scheduled", "due"]), "start", startDate), "due", scheduledDate);
 }
 function setTaskEstimate(line, estimateMinutes) {
   return appendField(removeFields(line, ["estimate"]), "estimate", `${Math.max(0, Math.round(estimateMinutes))}m`);
@@ -118,12 +120,12 @@ function setTaskPriority(line, priority) {
   return appendField(removeFields(line, ["priority"]), "priority", normalized);
 }
 function clearTaskScheduleDates(line) {
-  return removeFields(line, ["due", "scheduled", "start"]).replace(LEGACY_EMOJI_DATE_RE, " ").replace(/[ \t]+$/u, "");
+  return removeTag(removeFields(line, ["due", "scheduled", "start"]), LONG_TASK_SYNC_TAG).replace(LEGACY_EMOJI_DATE_RE, " ").replace(/[ \t]+$/u, "");
 }
 function cleanTaskDisplayText(line, triggerTags) {
   const withoutCheckbox = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "");
   const withoutFields = withoutCheckbox.replace(INLINE_FIELD_RE, " ").replace(LEGACY_EMOJI_DATE_RE, " ");
-  const tagSet = new Set(triggerTags.map((tag) => tag.toLowerCase()));
+  const tagSet = new Set([...triggerTags, LONG_TASK_SYNC_TAG.slice(1)].map((tag) => tag.toLowerCase()));
   return withoutFields.split(/\s+/u).filter((part) => {
     if (!part.startsWith("#"))
       return true;
@@ -141,6 +143,19 @@ function removeFields(line, fields) {
 }
 function appendField(line, field, value) {
   return `${line.replace(/[ \t]+$/u, "")} [${field}:: ${value}]`;
+}
+function ensureTag(line, tag) {
+  if (line.split(/\s+/u).includes(tag))
+    return line;
+  const firstField = line.search(INLINE_FIELD_RE);
+  if (firstField < 0)
+    return `${line.replace(/[ \t]+$/u, "")} ${tag}`;
+  const before = line.slice(0, firstField).replace(/[ \t]+$/u, "");
+  const after = line.slice(firstField).replace(/^[ \t]+/u, "");
+  return `${before} ${tag} ${after}`;
+}
+function removeTag(line, tag) {
+  return line.split(/(\s+)/u).filter((part) => part !== tag).join("").replace(/[ \t]{2,}/gu, " ").replace(/[ \t]+$/u, "");
 }
 function insertPlainEstimate(line, estimateMinutes) {
   const estimate = formatDuration(estimateMinutes);
@@ -302,15 +317,21 @@ function parseProgressPercent(raw) {
 (0, import_node_test.test)("writes span dates and estimate without removing other fields", () => {
   import_node_assert.strict.equal(
     setTaskSpanDates("- [ ] A  B #task [start:: 2024-01-10] [estimate:: 30m] [context:: phone]", "2024-01-14", "2024-01-18"),
-    "- [ ] A  B #task [estimate:: 30m] [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
+    "- [ ] A  B #task #\u957F\u4EFB\u52A1 [estimate:: 30m] [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
   );
   import_node_assert.strict.equal(
     setTaskSpanDates("- [ ] A #task [scheduled:: 2024-01-12] [context:: phone]", "2024-01-14", "2024-01-18"),
-    "- [ ] A #task [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
+    "- [ ] A #task #\u957F\u4EFB\u52A1 [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
   );
   import_node_assert.strict.equal(
     setTaskEstimate("- [ ] A  B #task [estimate:: 30m] [scheduled:: 2024-01-18]", 75),
     "- [ ] A  B #task [scheduled:: 2024-01-18] [estimate:: 75m]"
+  );
+});
+(0, import_node_test.test)("long task span syncs the long-task tag without duplicating it", () => {
+  import_node_assert.strict.equal(
+    setTaskSpanDates("- [ ] A #task #keep #\u957F\u4EFB\u52A1 [context:: phone]", "2024-01-14", "2024-01-18"),
+    "- [ ] A #task #keep #\u957F\u4EFB\u52A1 [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
   );
 });
 (0, import_node_test.test)("estimate and progress writeback preserve unrelated Dataview fields", () => {
@@ -327,6 +348,12 @@ function parseProgressPercent(raw) {
   import_node_assert.strict.equal(
     clearTaskScheduleDates("- [ ] A #task [due:: 2024-01-10] [start:: 2024-01-11] [scheduled:: 2024-01-12] [estimate:: 75m] \u{1F4C5} 2024-01-09 [context:: phone]"),
     "- [ ] A #task [estimate:: 75m] [context:: phone]"
+  );
+});
+(0, import_node_test.test)("clearing schedule removes only the long-task sync tag", () => {
+  import_node_assert.strict.equal(
+    clearTaskScheduleDates("- [ ] A #task #keep #\u957F\u4EFB\u52A1 [start:: 2024-01-11] [due:: 2024-01-12] [context:: phone]"),
+    "- [ ] A #task #keep [context:: phone]"
   );
 });
 (0, import_node_test.test)("clearing schedule preserves priority, progress, estimate, and unrelated Dataview fields", () => {
@@ -360,6 +387,10 @@ function parseProgressPercent(raw) {
   import_node_assert.strict.equal(
     cleanTaskDisplayText("- [ ] A  B #task [scheduled:: 2024-01-18] [estimate:: 75m] #keep", ["task", "todo"]),
     "A B #keep"
+  );
+  import_node_assert.strict.equal(
+    cleanTaskDisplayText("- [ ] Long #task #\u957F\u4EFB\u52A1 #keep [start:: 2024-01-18] [due:: 2024-01-20]", ["task", "todo"]),
+    "Long #keep"
   );
 });
 (0, import_node_test.test)("clean content text removes all tags, fields, dates, and plain estimates", () => {

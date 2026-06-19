@@ -7,6 +7,7 @@ var INLINE_FIELD_RE = /\[([^\[\]\n:]+)::\s*([^\]\n]*)\]/gu;
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
 var LEGACY_EMOJI_DATE_RE = /\s*(?:📅|馃搮)\s*(\d{4}-\d{2}-\d{2})\s*/u;
 var DATE_FIELDS = ["due", "scheduled", "start", "completion", "created"];
+var LONG_TASK_SYNC_TAG = "#\u957F\u4EFB\u52A1";
 function extractTaskMetadata(line, readLegacyEmojiDates) {
   const metadata = {};
   const dates = {};
@@ -76,7 +77,7 @@ function parseDurationToMinutes(raw) {
 function cleanTaskDisplayText(line, triggerTags) {
   const withoutCheckbox = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "");
   const withoutFields = withoutCheckbox.replace(INLINE_FIELD_RE, " ").replace(LEGACY_EMOJI_DATE_RE, " ");
-  const tagSet = new Set(triggerTags.map((tag) => tag.toLowerCase()));
+  const tagSet = new Set([...triggerTags, LONG_TASK_SYNC_TAG.slice(1)].map((tag) => tag.toLowerCase()));
   return withoutFields.split(/\s+/u).filter((part) => {
     if (!part.startsWith("#"))
       return true;

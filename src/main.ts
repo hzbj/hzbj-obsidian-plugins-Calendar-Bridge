@@ -18,6 +18,9 @@ export default class PersonalSchedulerPlugin extends Plugin {
   taskDateWriter!: TaskDateWriter;
   reviewPressureScanner!: ReviewPressureScanner;
   aiScheduleContextExporter!: AiScheduleContextExporter;
+  private rescanInFlight: Promise<void> | null = null;
+  private rescanQueued = false;
+  private scheduledRescanHandle: ReturnType<typeof setTimeout> | null = null;
 
   async onload(): Promise<void> {
     this.data = mergeCalendarData(await this.loadData());
@@ -30,11 +33,11 @@ export default class PersonalSchedulerPlugin extends Plugin {
     this.addSettingTab(new PersonalSystemSettingTab(this));
     this.registerEvent(this.app.vault.on("modify", (file) => {
       if (file.path === AI_SCHEDULE_CONTEXT_PATH) return;
-      void this.rescanTasks();
+      this.scheduleRescan();
     }));
-    this.registerEvent(this.app.vault.on("create", () => void this.rescanTasks()));
-    this.registerEvent(this.app.vault.on("delete", () => void this.rescanTasks()));
-    this.registerEvent(this.app.vault.on("rename", () => void this.rescanTasks()));
+    this.registerEvent(this.app.vault.on("create", () => this.scheduleRescan()));
+    this.registerEvent(this.app.vault.on("delete", () => this.scheduleRescan()));
+    this.registerEvent(this.app.vault.on("rename", () => this.scheduleRescan()));
 
     this.addRibbonIcon("calendar-days", "Open Calendar Bridge", () => this.activateView());
     this.addCommand({
@@ -51,24 +54,16 @@ export default class PersonalSchedulerPlugin extends Plugin {
       }
     });
 
-    // Startup scanning touches vault files; defer it so a warm-up failure cannot abort plugin loading.
+    // Startup scanning touches vault files; schedule it after Obsidian has yielded to UI input.
     this.app.workspace.onLayoutReady(() => {
-      void this.rescanTasks().catch((error: unknown) => this.reportStartupScanFailure(error));
+      this.scheduleRescan(1000);
     });
   }
 
   async activateView(): Promise<void> {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PERSONAL_SYSTEM)[0];
-    if (existing) {
-      this.app.workspace.revealLeaf(existing);
-      return;
-    }
-
-    const leaf = this.app.workspace.getRightLeaf(false);
-    if (!leaf) {
-      new Notice("No workspace leaf available.");
-      return;
-    }
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_PERSONAL_SYSTEM);
+    // Open in the main editor area so mobile/tablet sidebars do not constrain the calendar view.
+    const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: VIEW_TYPE_PERSONAL_SYSTEM, active: true });
     this.app.workspace.revealLeaf(leaf);
   }
@@ -80,6 +75,25 @@ export default class PersonalSchedulerPlugin extends Plugin {
   }
 
   async rescanTasks(): Promise<void> {
+    this.clearScheduledRescan();
+    if (this.rescanInFlight) {
+      this.rescanQueued = true;
+      await this.rescanInFlight;
+      return;
+    }
+
+    do {
+      this.rescanQueued = false;
+      this.rescanInFlight = this.runSingleRescan();
+      try {
+        await this.rescanInFlight;
+      } finally {
+        this.rescanInFlight = null;
+      }
+    } while (this.rescanQueued);
+  }
+
+  private async runSingleRescan(): Promise<void> {
     const [tasks, reviewPressure] = await Promise.all([
       this.taskScanner.scanAllMarkdownTasks(),
       this.reviewPressureScanner.scanReviewPressure()
@@ -93,6 +107,20 @@ export default class PersonalSchedulerPlugin extends Plugin {
       settings: this.data.settings
     });
     this.refreshViews();
+  }
+
+  private scheduleRescan(delayMs = 300): void {
+    if (this.scheduledRescanHandle) return;
+    this.scheduledRescanHandle = globalThis.setTimeout(() => {
+      this.scheduledRescanHandle = null;
+      void this.rescanTasks().catch((error: unknown) => this.reportStartupScanFailure(error));
+    }, delayMs);
+  }
+
+  private clearScheduledRescan(): void {
+    if (!this.scheduledRescanHandle) return;
+    globalThis.clearTimeout(this.scheduledRescanHandle);
+    this.scheduledRescanHandle = null;
   }
 
   async scheduleTaskDueDate(taskId: string, dueDate: string): Promise<void> {

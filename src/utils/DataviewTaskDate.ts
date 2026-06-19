@@ -28,6 +28,7 @@ const INLINE_FIELD_RE = /\[([^\[\]\n:]+)::\s*([^\]\n]*)\]/gu;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
 const LEGACY_EMOJI_DATE_RE = /\s*(?:📅|馃搮)\s*(\d{4}-\d{2}-\d{2})\s*/u;
 const DATE_FIELDS: DateField[] = ["due", "scheduled", "start", "completion", "created"];
+const LONG_TASK_SYNC_TAG = "#长任务";
 
 export function extractTaskMetadata(line: string, readLegacyEmojiDates: boolean): ExtractedTaskMetadata {
   const metadata: Record<string, string[]> = {};
@@ -124,7 +125,8 @@ export function setPointTaskSchedule(line: string, scheduledDate: string, defaul
 }
 
 export function setTaskSpanDates(line: string, startDate: string, scheduledDate: string): string {
-  return appendField(appendField(removeFields(line, ["start", "scheduled", "due"]), "start", startDate), "due", scheduledDate);
+  const taggedLine = ensureTag(line, LONG_TASK_SYNC_TAG);
+  return appendField(appendField(removeFields(taggedLine, ["start", "scheduled", "due"]), "start", startDate), "due", scheduledDate);
 }
 
 export function setTaskEstimate(line: string, estimateMinutes: number): string {
@@ -153,7 +155,9 @@ export function setTaskPriority(line: string, priority: string): string {
 }
 
 export function clearTaskScheduleDates(line: string): string {
-  return removeFields(line, ["due", "scheduled", "start"]).replace(LEGACY_EMOJI_DATE_RE, " ").replace(/[ \t]+$/u, "");
+  return removeTag(removeFields(line, ["due", "scheduled", "start"]), LONG_TASK_SYNC_TAG)
+    .replace(LEGACY_EMOJI_DATE_RE, " ")
+    .replace(/[ \t]+$/u, "");
 }
 
 export function setTaskDueDate(line: string, dueDate: string): string {
@@ -163,7 +167,7 @@ export function setTaskDueDate(line: string, dueDate: string): string {
 export function cleanTaskDisplayText(line: string, triggerTags: string[]): string {
   const withoutCheckbox = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "");
   const withoutFields = withoutCheckbox.replace(INLINE_FIELD_RE, " ").replace(LEGACY_EMOJI_DATE_RE, " ");
-  const tagSet = new Set(triggerTags.map((tag) => tag.toLowerCase()));
+  const tagSet = new Set([...triggerTags, LONG_TASK_SYNC_TAG.slice(1)].map((tag) => tag.toLowerCase()));
   return withoutFields
     .split(/\s+/u)
     .filter((part) => {
@@ -197,6 +201,24 @@ function removeFields(line: string, fields: string[]): string {
 
 function appendField(line: string, field: string, value: string): string {
   return `${line.replace(/[ \t]+$/u, "")} [${field}:: ${value}]`;
+}
+
+function ensureTag(line: string, tag: string): string {
+  if (line.split(/\s+/u).includes(tag)) return line;
+  const firstField = line.search(INLINE_FIELD_RE);
+  if (firstField < 0) return `${line.replace(/[ \t]+$/u, "")} ${tag}`;
+  const before = line.slice(0, firstField).replace(/[ \t]+$/u, "");
+  const after = line.slice(firstField).replace(/^[ \t]+/u, "");
+  return `${before} ${tag} ${after}`;
+}
+
+function removeTag(line: string, tag: string): string {
+  return line
+    .split(/(\s+)/u)
+    .filter((part) => part !== tag)
+    .join("")
+    .replace(/[ \t]{2,}/gu, " ")
+    .replace(/[ \t]+$/u, "");
 }
 
 function insertPlainEstimate(line: string, estimateMinutes: number): string {

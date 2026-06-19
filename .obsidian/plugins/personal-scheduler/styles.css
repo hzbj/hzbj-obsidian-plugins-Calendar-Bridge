@@ -607,6 +607,21 @@
   overflow-x: auto;
 }
 
+.cb-long-past-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 8px;
+}
+
+.cb-long-past-controls .cb-long-past-toggle {
+  padding: 3px 8px;
+  border: 1px solid var(--cb-border);
+  border-radius: 6px;
+  color: var(--cb-muted);
+  background: var(--background-primary);
+  font-size: 12px;
+}
+
 .cb-long-vertical-date-axis {
   display: grid;
   grid-template-rows: repeat(var(--cb-long-days), var(--cb-long-day-height));
@@ -646,6 +661,13 @@
 .cb-long-vertical-date.is-today {
   color: var(--text-on-accent);
   background: var(--cb-accent);
+}
+
+.cb-long-vertical-date.is-folded-past {
+  border-style: dashed;
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+  font-size: 11px;
 }
 
 .cb-long-vertical-date.is-drop-target {

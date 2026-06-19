@@ -119,15 +119,22 @@ test("replaces existing scheduled date while preserving other metadata", () => {
 test("writes span dates and estimate without removing other fields", () => {
   assert.equal(
     setTaskSpanDates("- [ ] A  B #task [start:: 2024-01-10] [estimate:: 30m] [context:: phone]", "2024-01-14", "2024-01-18"),
-    "- [ ] A  B #task [estimate:: 30m] [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
+    "- [ ] A  B #task #长任务 [estimate:: 30m] [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
   );
   assert.equal(
     setTaskSpanDates("- [ ] A #task [scheduled:: 2024-01-12] [context:: phone]", "2024-01-14", "2024-01-18"),
-    "- [ ] A #task [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
+    "- [ ] A #task #长任务 [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
   );
   assert.equal(
     setTaskEstimate("- [ ] A  B #task [estimate:: 30m] [scheduled:: 2024-01-18]", 75),
     "- [ ] A  B #task [scheduled:: 2024-01-18] [estimate:: 75m]"
+  );
+});
+
+test("long task span syncs the long-task tag without duplicating it", () => {
+  assert.equal(
+    setTaskSpanDates("- [ ] A #task #keep #长任务 [context:: phone]", "2024-01-14", "2024-01-18"),
+    "- [ ] A #task #keep #长任务 [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
   );
 });
 
@@ -146,6 +153,13 @@ test("clears all schedule dates while preserving estimate and other metadata", (
   assert.equal(
     clearTaskScheduleDates("- [ ] A #task [due:: 2024-01-10] [start:: 2024-01-11] [scheduled:: 2024-01-12] [estimate:: 75m] 📅 2024-01-09 [context:: phone]"),
     "- [ ] A #task [estimate:: 75m] [context:: phone]"
+  );
+});
+
+test("clearing schedule removes only the long-task sync tag", () => {
+  assert.equal(
+    clearTaskScheduleDates("- [ ] A #task #keep #长任务 [start:: 2024-01-11] [due:: 2024-01-12] [context:: phone]"),
+    "- [ ] A #task #keep [context:: phone]"
   );
 });
 
@@ -182,6 +196,10 @@ test("clean display text removes trigger tags and Dataview fields", () => {
   assert.equal(
     cleanTaskDisplayText("- [ ] A  B #task [scheduled:: 2024-01-18] [estimate:: 75m] #keep", ["task", "todo"]),
     "A B #keep"
+  );
+  assert.equal(
+    cleanTaskDisplayText("- [ ] Long #task #长任务 #keep [start:: 2024-01-18] [due:: 2024-01-20]", ["task", "todo"]),
+    "Long #keep"
   );
 });
 

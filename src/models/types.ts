@@ -64,6 +64,7 @@ export interface CalendarBridgeData {
   settings: CalendarSettings;
   ui: {
     monthTaskViewMode?: MonthTaskViewMode;
+    longTaskPastDaysExpanded?: boolean;
     sourceTaskGroups?: SourceTaskGroupState;
     [key: string]: unknown;
   };

@@ -173,6 +173,7 @@ var INLINE_FIELD_RE = /\[([^\[\]\n:]+)::\s*([^\]\n]*)\]/gu;
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
 var LEGACY_EMOJI_DATE_RE = /\s*(?:📅|馃搮)\s*(\d{4}-\d{2}-\d{2})\s*/u;
 var DATE_FIELDS = ["due", "scheduled", "start", "completion", "created"];
+var LONG_TASK_SYNC_TAG = "#\u957F\u4EFB\u52A1";
 function extractTaskMetadata(line, readLegacyEmojiDates) {
   const metadata = {};
   const dates = {};
@@ -254,7 +255,8 @@ function setPointTaskSchedule(line, scheduledDate, defaultEstimateMinutes, creat
   return appendField(appendField(updated, "scheduled", scheduledDate), "due", scheduledDate);
 }
 function setTaskSpanDates(line, startDate, scheduledDate) {
-  return appendField(appendField(removeFields(line, ["start", "scheduled", "due"]), "start", startDate), "due", scheduledDate);
+  const taggedLine = ensureTag(line, LONG_TASK_SYNC_TAG);
+  return appendField(appendField(removeFields(taggedLine, ["start", "scheduled", "due"]), "start", startDate), "due", scheduledDate);
 }
 function setTaskEstimate(line, estimateMinutes) {
   return appendField(removeFields(line, ["estimate"]), "estimate", `${Math.max(0, Math.round(estimateMinutes))}m`);
@@ -284,7 +286,7 @@ function setTaskPriority(line, priority) {
   return appendField(removeFields(line, ["priority"]), "priority", normalized);
 }
 function clearTaskScheduleDates(line) {
-  return removeFields(line, ["due", "scheduled", "start"]).replace(LEGACY_EMOJI_DATE_RE, " ").replace(/[ \t]+$/u, "");
+  return removeTag(removeFields(line, ["due", "scheduled", "start"]), LONG_TASK_SYNC_TAG).replace(LEGACY_EMOJI_DATE_RE, " ").replace(/[ \t]+$/u, "");
 }
 function setTaskDueDate(line, dueDate) {
   return appendField(removeFields(line, ["due"]), "due", dueDate);
@@ -292,7 +294,7 @@ function setTaskDueDate(line, dueDate) {
 function cleanTaskDisplayText(line, triggerTags) {
   const withoutCheckbox = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "");
   const withoutFields = withoutCheckbox.replace(INLINE_FIELD_RE, " ").replace(LEGACY_EMOJI_DATE_RE, " ");
-  const tagSet = new Set(triggerTags.map((tag) => tag.toLowerCase()));
+  const tagSet = new Set([...triggerTags, LONG_TASK_SYNC_TAG.slice(1)].map((tag) => tag.toLowerCase()));
   return withoutFields.split(/\s+/u).filter((part) => {
     if (!part.startsWith("#"))
       return true;
@@ -310,6 +312,19 @@ function removeFields(line, fields) {
 }
 function appendField(line, field, value) {
   return `${line.replace(/[ \t]+$/u, "")} [${field}:: ${value}]`;
+}
+function ensureTag(line, tag) {
+  if (line.split(/\s+/u).includes(tag))
+    return line;
+  const firstField = line.search(INLINE_FIELD_RE);
+  if (firstField < 0)
+    return `${line.replace(/[ \t]+$/u, "")} ${tag}`;
+  const before = line.slice(0, firstField).replace(/[ \t]+$/u, "");
+  const after = line.slice(firstField).replace(/^[ \t]+/u, "");
+  return `${before} ${tag} ${after}`;
+}
+function removeTag(line, tag) {
+  return line.split(/(\s+)/u).filter((part) => part !== tag).join("").replace(/[ \t]{2,}/gu, " ").replace(/[ \t]+$/u, "");
 }
 function insertPlainEstimate(line, estimateMinutes) {
   const estimate = formatDuration(estimateMinutes);
@@ -1088,6 +1103,69 @@ function matchesPathPrefix(filePath, prefix) {
   return filePath === folder || filePath.startsWith(`${folder}/`);
 }
 
+// src/services/LongTaskTimelineDisplay.ts
+function buildLongTimelineDisplay(monthDays, rows, today, pastDaysExpanded) {
+  const pastDays = monthDays.filter((day) => day.date < today);
+  const shouldFoldPast = !pastDaysExpanded && pastDays.length > 0;
+  if (!shouldFoldPast) {
+    return {
+      days: monthDays.map(toDisplayDay),
+      rows,
+      pastDaysFolded: false,
+      pastDayCount: pastDays.length
+    };
+  }
+  const foldedPastDay = buildFoldedPastDay(pastDays);
+  const days = [
+    foldedPastDay,
+    ...monthDays.filter((day) => day.date >= today).map(toDisplayDay)
+  ];
+  const indexByDate = new Map(days.map((day, index) => [day.date, index + 1]));
+  return {
+    days,
+    rows: rows.flatMap((row) => {
+      const startDay = row.visibleStartDate < today ? 1 : indexByDate.get(row.visibleStartDate);
+      const endDay = row.visibleEndDate < today ? 1 : indexByDate.get(row.visibleEndDate);
+      if (!startDay || !endDay)
+        return [];
+      return [{
+        ...row,
+        startDay,
+        endDay,
+        // A folded past segment is still part of the task range, but it no longer maps one-to-one to dates.
+        isClippedStart: row.isClippedStart || row.visibleStartDate < today,
+        isClippedEnd: row.isClippedEnd || row.visibleEndDate < today
+      }];
+    }),
+    pastDaysFolded: true,
+    pastDayCount: pastDays.length
+  };
+}
+function toDisplayDay(day) {
+  return {
+    date: day.date,
+    label: String(day.dayOfMonth),
+    dayOfMonth: day.dayOfMonth,
+    isToday: day.isToday,
+    isFoldedPast: false
+  };
+}
+function buildFoldedPastDay(pastDays) {
+  const first2 = pastDays[0];
+  const last = pastDays[pastDays.length - 1];
+  const label = first2.dayOfMonth === last.dayOfMonth ? String(first2.dayOfMonth) : `${first2.dayOfMonth}-${last.dayOfMonth}`;
+  return {
+    date: last.date,
+    label,
+    dayOfMonth: last.dayOfMonth,
+    isToday: false,
+    isFoldedPast: true,
+    foldedStartDate: first2.date,
+    foldedEndDate: last.date,
+    foldedDayCount: pastDays.length
+  };
+}
+
 // src/ui/pages/MonthPage.ts
 var longRangeDraft = null;
 function renderMonthPage(container, plugin, context) {
@@ -1202,13 +1280,15 @@ function renderTaskTitle(parent, task) {
 function renderLongVerticalTimeline(parent, plugin, context, model, viewMode, rerender) {
   renderToolbar(parent, context, plugin, viewMode);
   renderRangeHint(parent, plugin, viewMode);
-  const rows = assignVerticalTimelineLanes(buildLongTimelineRows(model));
   const monthDays = model.days.filter((day) => day.inCurrentMonth);
+  const display = buildLongTimelineDisplay(monthDays, model.longTaskTimelineRows, todayString(), plugin.data.ui.longTaskPastDaysExpanded === true);
+  renderLongPastDaysToggle(parent, plugin, display.pastDayCount, plugin.data.ui.longTaskPastDaysExpanded === true);
+  const rows = assignVerticalTimelineLanes(buildLongTimelineRows(display.rows));
   const laneCount = Math.max(1, ...rows.map((row) => row.lane));
   const timeline = parent.createDiv({ cls: "cb-long-vertical-timeline" });
-  timeline.style.setProperty("--cb-long-days", String(Math.max(1, monthDays.length)));
+  timeline.style.setProperty("--cb-long-days", String(Math.max(1, display.days.length)));
   timeline.style.setProperty("--cb-long-lanes", String(laneCount));
-  renderLongDatePicker(timeline, plugin, monthDays, viewMode, rerender);
+  renderLongDatePicker(timeline, plugin, display.days, viewMode, rerender);
   const track = timeline.createDiv({ cls: "cb-long-vertical-track" });
   if (rows.length === 0) {
     track.createDiv({ cls: "cb-empty", text: "No long task ranges in this month." });
@@ -1216,6 +1296,15 @@ function renderLongVerticalTimeline(parent, plugin, context, model, viewMode, re
   }
   for (const row of rows)
     renderLongVerticalTask(track, plugin, row);
+}
+function renderLongPastDaysToggle(parent, plugin, pastDayCount, expanded) {
+  if (pastDayCount === 0)
+    return;
+  const controls = parent.createDiv({ cls: "cb-long-past-controls" });
+  controls.createEl("button", {
+    cls: "cb-long-past-toggle",
+    text: expanded ? "Collapse past days" : `Show past days (${pastDayCount})`
+  }).addEventListener("click", () => void toggleLongTaskPastDays(plugin));
 }
 function renderPointMonthGrid(parent, plugin, context, model, viewMode) {
   renderToolbar(parent, context, plugin, viewMode);
@@ -1289,8 +1378,8 @@ function renderRangeHint(parent, plugin, viewMode) {
   }
   hint.setText(longRangeDraft?.startDate ? `Range: ${task.text}. Choose end date.` : `Range: ${task.text}. Choose start date.`);
 }
-function buildLongTimelineRows(model) {
-  return model.longTaskTimelineRows.map((row) => ({
+function buildLongTimelineRows(rows) {
+  return rows.map((row) => ({
     task: row.task,
     startDay: row.startDay,
     endDay: row.endDay,
@@ -1319,9 +1408,15 @@ function assignVerticalTimelineLanes(rows) {
 function renderLongDatePicker(parent, plugin, monthDays, viewMode, rerender) {
   const picker = parent.createDiv({ cls: "cb-long-vertical-date-axis" });
   for (const day of monthDays) {
-    const button = picker.createEl("button", { cls: "cb-long-vertical-date", text: String(day.dayOfMonth) });
+    const button = picker.createEl("button", { cls: "cb-long-vertical-date", text: day.label });
     button.toggleClass("is-today", day.isToday);
-    button.title = day.date;
+    button.toggleClass("is-folded-past", day.isFoldedPast);
+    button.title = day.isFoldedPast && day.foldedStartDate && day.foldedEndDate ? `${day.foldedStartDate} - ${day.foldedEndDate}` : day.date;
+    if (day.isFoldedPast) {
+      button.addClass("cb-long-past-toggle");
+      button.addEventListener("click", () => void toggleLongTaskPastDays(plugin));
+      continue;
+    }
     setupTimelineDateTarget(button, plugin, day.date, viewMode, rerender);
   }
 }
@@ -1514,6 +1609,11 @@ function splitSpanBarsByWeek(bars) {
 async function toggleSourceGroup(plugin, sourceFilePath) {
   const state = getSourceGroupState(plugin);
   state.collapsed = { ...state.collapsed ?? {}, [sourceFilePath]: !state.collapsed?.[sourceFilePath] };
+  await plugin.saveData(plugin.data);
+  plugin.refreshViews();
+}
+async function toggleLongTaskPastDays(plugin) {
+  plugin.data.ui.longTaskPastDaysExpanded = plugin.data.ui.longTaskPastDaysExpanded !== true;
   await plugin.saveData(plugin.data);
   plugin.refreshViews();
 }
@@ -2013,6 +2113,9 @@ var PersonalSchedulerPlugin = class extends Plugin {
     this.data = createDefaultData();
     this.calendarTasks = [];
     this.reviewPressure = {};
+    this.rescanInFlight = null;
+    this.rescanQueued = false;
+    this.scheduledRescanHandle = null;
   }
   async onload() {
     this.data = mergeCalendarData(await this.loadData());
@@ -2025,11 +2128,11 @@ var PersonalSchedulerPlugin = class extends Plugin {
     this.registerEvent(this.app.vault.on("modify", (file) => {
       if (file.path === AI_SCHEDULE_CONTEXT_PATH)
         return;
-      void this.rescanTasks();
+      this.scheduleRescan();
     }));
-    this.registerEvent(this.app.vault.on("create", () => void this.rescanTasks()));
-    this.registerEvent(this.app.vault.on("delete", () => void this.rescanTasks()));
-    this.registerEvent(this.app.vault.on("rename", () => void this.rescanTasks()));
+    this.registerEvent(this.app.vault.on("create", () => this.scheduleRescan()));
+    this.registerEvent(this.app.vault.on("delete", () => this.scheduleRescan()));
+    this.registerEvent(this.app.vault.on("rename", () => this.scheduleRescan()));
     this.addRibbonIcon("calendar-days", "Open Calendar Bridge", () => this.activateView());
     this.addCommand({
       id: "open-calendar-bridge",
@@ -2045,20 +2148,12 @@ var PersonalSchedulerPlugin = class extends Plugin {
       }
     });
     this.app.workspace.onLayoutReady(() => {
-      void this.rescanTasks().catch((error) => this.reportStartupScanFailure(error));
+      this.scheduleRescan(1e3);
     });
   }
   async activateView() {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PERSONAL_SYSTEM)[0];
-    if (existing) {
-      this.app.workspace.revealLeaf(existing);
-      return;
-    }
-    const leaf = this.app.workspace.getRightLeaf(false);
-    if (!leaf) {
-      new Notice("No workspace leaf available.");
-      return;
-    }
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_PERSONAL_SYSTEM);
+    const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: VIEW_TYPE_PERSONAL_SYSTEM, active: true });
     this.app.workspace.revealLeaf(leaf);
   }
@@ -2068,6 +2163,23 @@ var PersonalSchedulerPlugin = class extends Plugin {
     await this.rescanTasks();
   }
   async rescanTasks() {
+    this.clearScheduledRescan();
+    if (this.rescanInFlight) {
+      this.rescanQueued = true;
+      await this.rescanInFlight;
+      return;
+    }
+    do {
+      this.rescanQueued = false;
+      this.rescanInFlight = this.runSingleRescan();
+      try {
+        await this.rescanInFlight;
+      } finally {
+        this.rescanInFlight = null;
+      }
+    } while (this.rescanQueued);
+  }
+  async runSingleRescan() {
     const [tasks, reviewPressure] = await Promise.all([
       this.taskScanner.scanAllMarkdownTasks(),
       this.reviewPressureScanner.scanReviewPressure()
@@ -2081,6 +2193,20 @@ var PersonalSchedulerPlugin = class extends Plugin {
       settings: this.data.settings
     });
     this.refreshViews();
+  }
+  scheduleRescan(delayMs = 300) {
+    if (this.scheduledRescanHandle)
+      return;
+    this.scheduledRescanHandle = globalThis.setTimeout(() => {
+      this.scheduledRescanHandle = null;
+      void this.rescanTasks().catch((error) => this.reportStartupScanFailure(error));
+    }, delayMs);
+  }
+  clearScheduledRescan() {
+    if (!this.scheduledRescanHandle)
+      return;
+    globalThis.clearTimeout(this.scheduledRescanHandle);
+    this.scheduledRescanHandle = null;
   }
   async scheduleTaskDueDate(taskId, dueDate) {
     await this.scheduleTaskDate(taskId, dueDate);
@@ -2198,6 +2324,12 @@ function mergeCalendarData(raw) {
   const PluginCtor = PersonalSchedulerPlugin;
   const plugin = new PluginCtor();
   const layoutReadyCallbacks = [];
+  const timeoutCallbacks = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback) => {
+    timeoutCallbacks.push(callback);
+    return 1;
+  };
   plugin.app = {
     vault: {
       getMarkdownFiles: () => [{ path: "Inbox.md" }],
@@ -2229,9 +2361,86 @@ function mergeCalendarData(raw) {
   try {
     layoutReadyCallbacks[0]();
     await new Promise((resolve) => setImmediate(resolve));
+    import_node_assert.strict.equal(timeoutCallbacks.length, 1);
+    import_node_assert.strict.equal(errors.length, 0);
+    import_node_assert.strict.equal(notices.length, 0);
+    timeoutCallbacks[0]();
+    await new Promise((resolve) => setImmediate(resolve));
   } finally {
     console.error = originalConsoleError;
+    globalThis.setTimeout = originalSetTimeout;
   }
   import_node_assert.strict.equal(errors.length, 1);
   import_node_assert.strict.equal(notices.length, 1);
+});
+(0, import_node_test.test)("activating the calendar opens a main workspace tab", async () => {
+  const PluginCtor = PersonalSchedulerPlugin;
+  const plugin = new PluginCtor();
+  const calls = [];
+  const leaf = {
+    setViewState: async (state) => {
+      calls.push(`setViewState:${state.type}:${state.active}`);
+    }
+  };
+  plugin.app = {
+    workspace: {
+      getLeavesOfType: () => [],
+      detachLeavesOfType: (viewType) => {
+        calls.push(`detachLeavesOfType:${viewType}`);
+      },
+      getLeaf: (location) => {
+        calls.push(`getLeaf:${location}`);
+        return leaf;
+      },
+      getRightLeaf: () => {
+        calls.push("getRightLeaf");
+        return leaf;
+      },
+      revealLeaf: (target) => {
+        import_node_assert.strict.equal(target, leaf);
+        calls.push("revealLeaf");
+      }
+    }
+  };
+  await plugin.activateView();
+  import_node_assert.strict.deepEqual(calls, [
+    `detachLeavesOfType:${VIEW_TYPE_PERSONAL_SYSTEM}`,
+    "getLeaf:tab",
+    `setViewState:${VIEW_TYPE_PERSONAL_SYSTEM}:true`,
+    "revealLeaf"
+  ]);
+});
+(0, import_node_test.test)("activating the calendar moves an existing sidebar view into a main workspace tab", async () => {
+  const PluginCtor = PersonalSchedulerPlugin;
+  const plugin = new PluginCtor();
+  const calls = [];
+  const existingLeaf = {};
+  const newLeaf = {
+    setViewState: async (state) => {
+      calls.push(`setViewState:${state.type}:${state.active}`);
+    }
+  };
+  plugin.app = {
+    workspace: {
+      getLeavesOfType: () => [existingLeaf],
+      detachLeavesOfType: (viewType) => {
+        calls.push(`detachLeavesOfType:${viewType}`);
+      },
+      getLeaf: (location) => {
+        calls.push(`getLeaf:${location}`);
+        return newLeaf;
+      },
+      revealLeaf: (target) => {
+        import_node_assert.strict.equal(target, newLeaf);
+        calls.push("revealLeaf");
+      }
+    }
+  };
+  await plugin.activateView();
+  import_node_assert.strict.deepEqual(calls, [
+    `detachLeavesOfType:${VIEW_TYPE_PERSONAL_SYSTEM}`,
+    "getLeaf:tab",
+    `setViewState:${VIEW_TYPE_PERSONAL_SYSTEM}:true`,
+    "revealLeaf"
+  ]);
 });

@@ -2,6 +2,7 @@ import { Notice } from "obsidian";
 import type PersonalSchedulerPlugin from "../../main";
 import type { CalendarSpanBar, CalendarTask, CalendarViewModel, MonthTaskViewMode, SourceTaskGroup, SourceTaskGroupState, TaskSortMode } from "../../models/types";
 import { buildMonthViewModel, buildSourceTaskGroups } from "../../services/CalendarViewModel";
+import { buildLongTimelineDisplay, type LongTimelineDisplayDay } from "../../services/LongTaskTimelineDisplay";
 import { addDays, todayString } from "../../utils/date";
 import { normalizeTaskPriority, parseDurationToMinutes } from "../../utils/DataviewTaskDate";
 
@@ -151,14 +152,16 @@ function renderLongVerticalTimeline(
 ): void {
   renderToolbar(parent, context, plugin, viewMode);
   renderRangeHint(parent, plugin, viewMode);
-  const rows = assignVerticalTimelineLanes(buildLongTimelineRows(model));
   const monthDays = model.days.filter((day) => day.inCurrentMonth);
+  const display = buildLongTimelineDisplay(monthDays, model.longTaskTimelineRows, todayString(), plugin.data.ui.longTaskPastDaysExpanded === true);
+  renderLongPastDaysToggle(parent, plugin, display.pastDayCount, plugin.data.ui.longTaskPastDaysExpanded === true);
+  const rows = assignVerticalTimelineLanes(buildLongTimelineRows(display.rows));
   const laneCount = Math.max(1, ...rows.map((row) => row.lane));
 
   const timeline = parent.createDiv({ cls: "cb-long-vertical-timeline" });
-  timeline.style.setProperty("--cb-long-days", String(Math.max(1, monthDays.length)));
+  timeline.style.setProperty("--cb-long-days", String(Math.max(1, display.days.length)));
   timeline.style.setProperty("--cb-long-lanes", String(laneCount));
-  renderLongDatePicker(timeline, plugin, monthDays, viewMode, rerender);
+  renderLongDatePicker(timeline, plugin, display.days, viewMode, rerender);
 
   const track = timeline.createDiv({ cls: "cb-long-vertical-track" });
   if (rows.length === 0) {
@@ -167,6 +170,15 @@ function renderLongVerticalTimeline(
   }
 
   for (const row of rows) renderLongVerticalTask(track, plugin, row);
+}
+
+function renderLongPastDaysToggle(parent: HTMLElement, plugin: PersonalSchedulerPlugin, pastDayCount: number, expanded: boolean): void {
+  if (pastDayCount === 0) return;
+  const controls = parent.createDiv({ cls: "cb-long-past-controls" });
+  controls.createEl("button", {
+    cls: "cb-long-past-toggle",
+    text: expanded ? "Collapse past days" : `Show past days (${pastDayCount})`
+  }).addEventListener("click", () => void toggleLongTaskPastDays(plugin));
 }
 
 function renderPointMonthGrid(
@@ -254,8 +266,8 @@ function renderRangeHint(parent: HTMLElement, plugin: PersonalSchedulerPlugin, v
   hint.setText(longRangeDraft?.startDate ? `Range: ${task.text}. Choose end date.` : `Range: ${task.text}. Choose start date.`);
 }
 
-function buildLongTimelineRows(model: CalendarViewModel): TimelineRow[] {
-  return model.longTaskTimelineRows.map((row) => ({
+function buildLongTimelineRows(rows: CalendarViewModel["longTaskTimelineRows"]): TimelineRow[] {
+  return rows.map((row) => ({
     task: row.task,
     startDay: row.startDay,
     endDay: row.endDay,
@@ -286,15 +298,23 @@ function assignVerticalTimelineLanes(rows: TimelineRow[]): TimelineRow[] {
 function renderLongDatePicker(
   parent: HTMLElement,
   plugin: PersonalSchedulerPlugin,
-  monthDays: CalendarViewModel["days"],
+  monthDays: LongTimelineDisplayDay[],
   viewMode: MonthTaskViewMode,
   rerender: () => void
 ): void {
   const picker = parent.createDiv({ cls: "cb-long-vertical-date-axis" });
   for (const day of monthDays) {
-    const button = picker.createEl("button", { cls: "cb-long-vertical-date", text: String(day.dayOfMonth) });
+    const button = picker.createEl("button", { cls: "cb-long-vertical-date", text: day.label });
     button.toggleClass("is-today", day.isToday);
-    button.title = day.date;
+    button.toggleClass("is-folded-past", day.isFoldedPast);
+    button.title = day.isFoldedPast && day.foldedStartDate && day.foldedEndDate
+      ? `${day.foldedStartDate} - ${day.foldedEndDate}`
+      : day.date;
+    if (day.isFoldedPast) {
+      button.addClass("cb-long-past-toggle");
+      button.addEventListener("click", () => void toggleLongTaskPastDays(plugin));
+      continue;
+    }
     setupTimelineDateTarget(button, plugin, day.date, viewMode, rerender);
   }
 }
@@ -503,6 +523,12 @@ function splitSpanBarsByWeek(bars: CalendarSpanBar[]): Array<{ bar: CalendarSpan
 async function toggleSourceGroup(plugin: PersonalSchedulerPlugin, sourceFilePath: string): Promise<void> {
   const state = getSourceGroupState(plugin);
   state.collapsed = { ...(state.collapsed ?? {}), [sourceFilePath]: !state.collapsed?.[sourceFilePath] };
+  await plugin.saveData(plugin.data);
+  plugin.refreshViews();
+}
+
+async function toggleLongTaskPastDays(plugin: PersonalSchedulerPlugin): Promise<void> {
+  plugin.data.ui.longTaskPastDaysExpanded = plugin.data.ui.longTaskPastDaysExpanded !== true;
   await plugin.saveData(plugin.data);
   plugin.refreshViews();
 }
