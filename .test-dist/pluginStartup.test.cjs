@@ -407,6 +407,7 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
   const pointTasks = activeTasks.filter((task) => task.taskKind !== "long");
   const pointLoadTasks = loadTasks.filter((task) => task.taskKind !== "long");
   const longTasks = activeTasks.filter((task) => task.taskKind === "long");
+  const topLevelLongTasks = longTasks.filter((task) => !task.parentLongTaskId);
   const visibleDates = new Set(days.map((day) => day.date));
   const tasksByDate = {};
   const dayLoads = {};
@@ -453,7 +454,7 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
     unifiedUnscheduledTasks,
     dayLoads,
     spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) : [],
     longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
@@ -470,7 +471,34 @@ function buildChildTasksByLongTaskId(tasks) {
     children.push(task);
     byParent.set(task.parentLongTaskId, children);
   }
+  for (const [parentId, children] of byParent) {
+    byParent.set(parentId, sortLongTaskChildren(children));
+  }
   return byParent;
+}
+function sortLongTaskChildren(tasks) {
+  return [...tasks].sort((a, b) => {
+    const leftDate = childTaskSortDate(a);
+    const rightDate = childTaskSortDate(b);
+    if (leftDate && rightDate) {
+      const dateCompare = leftDate.localeCompare(rightDate);
+      if (dateCompare !== 0)
+        return dateCompare;
+    } else if (leftDate) {
+      return -1;
+    } else if (rightDate) {
+      return 1;
+    }
+    const endCompare = (a.spanEnd ?? "").localeCompare(b.spanEnd ?? "");
+    if (endCompare !== 0)
+      return endCompare;
+    return a.id.localeCompare(b.id);
+  });
+}
+function childTaskSortDate(task) {
+  if (task.taskKind === "long")
+    return task.spanStart ?? task.scheduleDate;
+  return task.scheduleDate;
 }
 function normalizePriorityRank(priority) {
   const normalized = normalizeTaskPriority(priority);
@@ -1280,7 +1308,7 @@ function renderPointPoolTask(parent, plugin, task) {
   card.draggable = true;
   card.addEventListener("dragstart", (event) => setDragTask(event, task.id));
   card.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, task));
-  renderTaskTitle(card, task);
+  renderTaskTitle(card, plugin, task);
   const meta = card.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task) });
   if (task.estimateMinutes)
@@ -1292,7 +1320,7 @@ function renderPointPoolTask(parent, plugin, task) {
 function renderLongPoolTask(parent, plugin, task) {
   const card = parent.createDiv({ cls: `cb-task-card cb-long-task-card ${priorityClass(task)}` });
   card.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, task));
-  renderTaskTitle(card, task);
+  renderTaskTitle(card, plugin, task);
   const meta = card.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task) });
   meta.createSpan({ cls: "cb-chip", text: `progress ${task.progressPercent ?? 0}%` });
@@ -1302,8 +1330,9 @@ function renderLongPoolTask(parent, plugin, task) {
     plugin.refreshViews();
   });
 }
-function renderTaskTitle(parent, task) {
+function renderTaskTitle(parent, plugin, task) {
   const row = parent.createDiv({ cls: "cb-task-title-row" });
+  row.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
   row.createSpan({ cls: "cb-priority-marker", text: priorityLabel(task) });
   row.createSpan({ cls: "cb-task-title", text: task.text });
 }
@@ -1360,6 +1389,7 @@ function renderPointMonthGrid(parent, plugin, context, model, viewMode) {
   for (const segment of splitSpanBarsByWeek(pointBars)) {
     const bar = grid.createDiv({ cls: "cb-span-bar" });
     bar.setText(segment.bar.task.text);
+    bar.addEventListener("click", () => void plugin.openTaskSourceNote(segment.bar.task.id));
     bar.style.gridColumn = `${segment.columnStart} / ${segment.columnEnd}`;
     bar.style.gridRow = String(segment.row);
     bar.title = `${segment.bar.task.text} ${segment.bar.startDate} -> ${segment.bar.endDate}`;
@@ -1461,7 +1491,7 @@ function renderLongVerticalTask(parent, plugin, row) {
   bar.style.gridColumn = String(row.lane);
   bar.toggleClass("is-clipped-start", row.clippedStart);
   bar.toggleClass("is-clipped-end", row.clippedEnd);
-  renderTaskTitle(bar, row.task);
+  renderTaskTitle(bar, plugin, row.task);
   const meta = bar.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip", text: `${shortDate(row.fullStartDate)} - ${shortDate(row.fullEndDate)}` });
   meta.createSpan({ cls: "cb-chip", text: `progress ${row.task.progressPercent ?? 0}%` });
@@ -1469,19 +1499,35 @@ function renderLongVerticalTask(parent, plugin, row) {
     meta.createSpan({ cls: "cb-chip cb-chip-info", text: "continues" });
   if (row.status)
     meta.createSpan({ cls: "cb-chip", text: row.status });
-  renderLongTaskChildren(bar, row.childTasks);
+  renderLongTaskChildren(bar, plugin, row.childTasks);
 }
-function renderLongTaskChildren(parent, childTasks) {
+function renderLongTaskChildren(parent, plugin, childTasks) {
   if (childTasks.length === 0)
     return;
   const list = parent.createDiv({ cls: "cb-long-child-list" });
   for (const child of childTasks) {
+    const schedule = childTaskScheduleLabel(child);
+    if (child.taskKind === "long" && schedule) {
+      renderChildLongTaskCard(list, plugin, child, schedule);
+      continue;
+    }
     const item = list.createDiv({ cls: "cb-long-child-item" });
     item.createSpan({ cls: "cb-long-child-title", text: childTaskContentLabel(child) });
-    const schedule = childTaskScheduleLabel(child);
     if (schedule)
       item.createSpan({ cls: "cb-long-child-time", text: schedule });
   }
+}
+function renderChildLongTaskCard(parent, plugin, task, schedule) {
+  const item = parent.createDiv({ cls: `cb-long-child-card ${priorityClass(task)}` });
+  item.draggable = true;
+  item.addEventListener("dragstart", (event) => {
+    event.stopPropagation();
+    setDragTask(event, task.id);
+  });
+  const header = item.createDiv({ cls: "cb-long-child-card-header" });
+  header.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
+  header.createSpan({ cls: "cb-long-child-card-title", text: childTaskContentLabel(task) });
+  header.createSpan({ cls: "cb-long-child-card-range", text: schedule });
 }
 function renderParentLongTaskChip(parent, task) {
   if (!task.parentLongTaskText)
@@ -1921,7 +1967,7 @@ function renderDayRow(parent, plugin, row) {
   } else {
     const taskList = taskPane.createDiv({ cls: "cb-week-task-list" });
     for (const task of row.tasks)
-      renderScheduledTaskName(taskList, task);
+      renderScheduledTaskName(taskList, plugin, task);
   }
   const reviewPane = item.createDiv({ cls: "cb-week-pressure-pane cb-review-pressure-pane" });
   reviewPane.createDiv({ cls: "cb-pane-title", text: `Review pressure ${formatMinutes2(row.review.minutes)}` });
@@ -1934,7 +1980,7 @@ function renderPoolTask(parent, plugin, task) {
   const card = parent.createDiv({ cls: `cb-task-card ${priorityClass2(task)}` });
   card.draggable = true;
   card.addEventListener("dragstart", (event) => setDragTask2(event, task.id));
-  renderTaskTitle2(card, task);
+  renderTaskTitle2(card, plugin, task);
   const meta = card.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel2(task) });
   meta.createSpan({ cls: "cb-chip", text: task.estimateMinutes ? formatMinutes2(task.estimateMinutes) : "no estimate" });
@@ -1951,15 +1997,17 @@ function renderParentLongTaskChip2(parent, task) {
     return;
   parent.createSpan({ cls: "cb-chip cb-parent-long-task-chip", text: `Parent: ${task.parentLongTaskText}` });
 }
-function renderScheduledTaskName(parent, task) {
+function renderScheduledTaskName(parent, plugin, task) {
   const row = parent.createDiv({ cls: `cb-week-task-name ${priorityClass2(task)}` });
   row.draggable = true;
   row.addEventListener("dragstart", (event) => setDragTask2(event, task.id));
+  row.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
   row.createSpan({ cls: "cb-week-priority cb-priority-marker", text: priorityLabel2(task) });
   row.createSpan({ cls: "cb-week-task-content", text: taskContentLabel(task) });
 }
-function renderTaskTitle2(parent, task) {
+function renderTaskTitle2(parent, plugin, task) {
   const row = parent.createDiv({ cls: "cb-task-title-row" });
+  row.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
   row.createSpan({ cls: "cb-priority-marker", text: priorityLabel2(task) });
   row.createSpan({ cls: "cb-task-title", text: task.text });
 }
@@ -2337,6 +2385,17 @@ var PersonalSchedulerPlugin = class extends Plugin {
     await this.taskDateWriter.clearSchedule(target.file, target.lineNumber);
     await this.rescanTasks();
   }
+  async openTaskSourceNote(taskId) {
+    const target = this.resolveTaskRef(taskId);
+    if (!target)
+      return;
+    const leaf = this.app.workspace.getLeaf(false);
+    await leaf.openFile(target.file, {
+      active: true,
+      eState: { line: Math.max(0, target.lineNumber - 1) }
+    });
+    this.app.workspace.revealLeaf(leaf);
+  }
   refreshViews() {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_PERSONAL_SYSTEM)) {
       const view = leaf.view;
@@ -2508,4 +2567,35 @@ function mergeCalendarData(raw) {
     `setViewState:${VIEW_TYPE_PERSONAL_SYSTEM}:true`,
     "revealLeaf"
   ]);
+});
+(0, import_node_test.test)("opening a task source jumps to the task note line", async () => {
+  const PluginCtor = PersonalSchedulerPlugin;
+  const plugin = new PluginCtor();
+  const file = new TFile();
+  file.path = "Inbox.md";
+  const opened = [];
+  const leaf = {
+    openFile: async (target, state) => {
+      opened.push({ file: target, state });
+    }
+  };
+  plugin.app = {
+    vault: {
+      getAbstractFileByPath: (path) => path === "Inbox.md" ? file : null
+    },
+    workspace: {
+      getLeaf: (location) => {
+        import_node_assert.strict.equal(location, false);
+        return leaf;
+      },
+      revealLeaf: (target) => {
+        import_node_assert.strict.equal(target, leaf);
+      }
+    }
+  };
+  await plugin.openTaskSourceNote("Inbox.md:12");
+  import_node_assert.strict.deepEqual(opened, [{
+    file,
+    state: { active: true, eState: { line: 11 } }
+  }]);
 });

@@ -25,3 +25,14 @@ test("renders parent long-task labels on week unscheduled child tasks", () => {
   assert.match(source, /renderParentLongTaskChip\(meta, task\)/);
   assert.match(source, /parentLongTaskText/);
 });
+
+test("opens the source note when week task titles are clicked", () => {
+  const source = readFileSync("src/ui/pages/WeekPage.ts", "utf8");
+  const title = source.slice(source.indexOf("function renderTaskTitle"), source.indexOf("function renderEstimateControl"));
+  const scheduled = source.slice(source.indexOf("function renderScheduledTaskName"), source.indexOf("function renderTaskTitle"));
+
+  assert.match(title, /plugin: PersonalSchedulerPlugin/);
+  assert.match(title, /addEventListener\("click", \(\) => void plugin\.openTaskSourceNote\(task\.id\)\)/);
+  assert.match(source, /renderTaskTitle\(card, plugin, task\)/);
+  assert.match(scheduled, /openTaskSourceNote\(task\.id\)/);
+});

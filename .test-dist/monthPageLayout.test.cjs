@@ -52,6 +52,44 @@ var import_node_test = require("node:test");
   import_node_assert.strict.match(source, /function renderParentLongTaskChip/);
   import_node_assert.strict.match(source, /renderParentLongTaskChip\(meta, task\)/);
   import_node_assert.strict.match(source, /function renderLongTaskChildren/);
-  import_node_assert.strict.match(source, /renderLongTaskChildren\(bar, row\.childTasks\)/);
+  import_node_assert.strict.match(source, /renderLongTaskChildren\(bar, plugin, row\.childTasks\)/);
   import_node_assert.strict.match(source, /function childTaskScheduleLabel/);
+});
+(0, import_node_test.test)("renders scheduled child long tasks as draggable cards inside parent bars", () => {
+  const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
+  const css = (0, import_node_fs.readFileSync)("styles.css", "utf8");
+  import_node_assert.strict.match(source, /function renderChildLongTaskCard/);
+  import_node_assert.strict.match(source, /renderChildLongTaskCard\(list, plugin, child, schedule\)/);
+  import_node_assert.strict.match(source, /item\.draggable = true/);
+  import_node_assert.strict.match(source, /setDragTask\(event, task\.id\)/);
+  import_node_assert.strict.match(css, /\.cb-long-child-card/);
+  import_node_assert.strict.match(css, /\.cb-long-child-card-header/);
+  import_node_assert.strict.match(css, /\.cb-long-child-card-range/);
+});
+(0, import_node_test.test)("keeps child long task drag ids from bubbling into the parent bar", () => {
+  const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
+  const childCard = source.slice(source.indexOf("function renderChildLongTaskCard"), source.indexOf("function renderParentLongTaskChip"));
+  import_node_assert.strict.match(childCard, /event\.stopPropagation\(\)/);
+  import_node_assert.strict.match(childCard, /setDragTask\(event, task\.id\)/);
+});
+(0, import_node_test.test)("keeps child long task titles readable beside range labels", () => {
+  const css = (0, import_node_fs.readFileSync)("styles.css", "utf8");
+  import_node_assert.strict.match(css, /\.cb-long-child-card-header\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+  import_node_assert.strict.match(css, /\.cb-long-child-card-title\s*\{[^}]*white-space:\s*normal/s);
+  import_node_assert.strict.match(css, /\.cb-long-child-card-title\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+  import_node_assert.strict.match(css, /\.cb-long-child-card-range\s*\{[^}]*justify-self:\s*start/s);
+});
+(0, import_node_test.test)("opens the source note when month task titles are clicked", () => {
+  const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
+  const title = source.slice(source.indexOf("function renderTaskTitle"), source.indexOf("function renderLongVerticalTimeline"));
+  const pointPool = source.slice(source.indexOf("function renderPointPoolTask"), source.indexOf("function renderLongPoolTask"));
+  const longPool = source.slice(source.indexOf("function renderLongPoolTask"), source.indexOf("function renderTaskTitle"));
+  const longBar = source.slice(source.indexOf("function renderLongVerticalTask"), source.indexOf("function renderLongTaskChildren"));
+  const childCard = source.slice(source.indexOf("function renderChildLongTaskCard"), source.indexOf("function renderParentLongTaskChip"));
+  import_node_assert.strict.match(title, /plugin: PersonalSchedulerPlugin/);
+  import_node_assert.strict.match(title, /addEventListener\("click", \(\) => void plugin\.openTaskSourceNote\(task\.id\)\)/);
+  import_node_assert.strict.match(pointPool, /renderTaskTitle\(card, plugin, task\)/);
+  import_node_assert.strict.match(longPool, /renderTaskTitle\(card, plugin, task\)/);
+  import_node_assert.strict.match(longBar, /renderTaskTitle\(bar, plugin, row\.task\)/);
+  import_node_assert.strict.match(childCard, /openTaskSourceNote\(task\.id\)/);
 });

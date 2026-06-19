@@ -52,6 +52,7 @@ function buildViewModel(
   const pointTasks = activeTasks.filter((task) => task.taskKind !== "long");
   const pointLoadTasks = loadTasks.filter((task) => task.taskKind !== "long");
   const longTasks = activeTasks.filter((task) => task.taskKind === "long");
+  const topLevelLongTasks = longTasks.filter((task) => !task.parentLongTaskId);
   const visibleDates = new Set(days.map((day) => day.date));
   const tasksByDate: Record<string, CalendarTask[]> = {};
   const dayLoads: Record<string, CalendarDayLoad> = {};
@@ -101,7 +102,7 @@ function buildViewModel(
     unifiedUnscheduledTasks,
     dayLoads,
     spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) : [],
     longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
@@ -118,7 +119,33 @@ function buildChildTasksByLongTaskId(tasks: CalendarTask[]): Map<string, Calenda
     children.push(task);
     byParent.set(task.parentLongTaskId, children);
   }
+  for (const [parentId, children] of byParent) {
+    byParent.set(parentId, sortLongTaskChildren(children));
+  }
   return byParent;
+}
+
+function sortLongTaskChildren(tasks: CalendarTask[]): CalendarTask[] {
+  return [...tasks].sort((a, b) => {
+    const leftDate = childTaskSortDate(a);
+    const rightDate = childTaskSortDate(b);
+    if (leftDate && rightDate) {
+      const dateCompare = leftDate.localeCompare(rightDate);
+      if (dateCompare !== 0) return dateCompare;
+    } else if (leftDate) {
+      return -1;
+    } else if (rightDate) {
+      return 1;
+    }
+    const endCompare = (a.spanEnd ?? "").localeCompare(b.spanEnd ?? "");
+    if (endCompare !== 0) return endCompare;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function childTaskSortDate(task: CalendarTask): string | undefined {
+  if (task.taskKind === "long") return task.spanStart ?? task.scheduleDate;
+  return task.scheduleDate;
 }
 
 export function normalizePriorityRank(priority: string | undefined): 1 | 2 | 3 | 4 {

@@ -188,6 +188,17 @@ export default class PersonalSchedulerPlugin extends Plugin {
     await this.rescanTasks();
   }
 
+  async openTaskSourceNote(taskId: string): Promise<void> {
+    const target = this.resolveTaskRef(taskId);
+    if (!target) return;
+    const leaf = this.app.workspace.getLeaf(false);
+    await leaf.openFile(target.file, {
+      active: true,
+      eState: { line: Math.max(0, target.lineNumber - 1) }
+    });
+    this.app.workspace.revealLeaf(leaf);
+  }
+
   refreshViews(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_PERSONAL_SYSTEM)) {
       const view = leaf.view;

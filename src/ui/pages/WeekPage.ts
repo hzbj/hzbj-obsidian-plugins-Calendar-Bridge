@@ -110,7 +110,7 @@ function renderDayRow(parent: HTMLElement, plugin: PersonalSchedulerPlugin, row:
     taskPane.createDiv({ cls: "cb-empty", text: "No tasks" });
   } else {
     const taskList = taskPane.createDiv({ cls: "cb-week-task-list" });
-    for (const task of row.tasks) renderScheduledTaskName(taskList, task);
+    for (const task of row.tasks) renderScheduledTaskName(taskList, plugin, task);
   }
 
   const reviewPane = item.createDiv({ cls: "cb-week-pressure-pane cb-review-pressure-pane" });
@@ -125,7 +125,7 @@ function renderPoolTask(parent: HTMLElement, plugin: PersonalSchedulerPlugin, ta
   const card = parent.createDiv({ cls: `cb-task-card ${priorityClass(task)}` });
   card.draggable = true;
   card.addEventListener("dragstart", (event) => setDragTask(event, task.id));
-  renderTaskTitle(card, task);
+  renderTaskTitle(card, plugin, task);
   const meta = card.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task) });
   meta.createSpan({ cls: "cb-chip", text: task.estimateMinutes ? formatMinutes(task.estimateMinutes) : "no estimate" });
@@ -141,16 +141,18 @@ function renderParentLongTaskChip(parent: HTMLElement, task: CalendarTask): void
   parent.createSpan({ cls: "cb-chip cb-parent-long-task-chip", text: `Parent: ${task.parentLongTaskText}` });
 }
 
-function renderScheduledTaskName(parent: HTMLElement, task: CalendarTask): void {
+function renderScheduledTaskName(parent: HTMLElement, plugin: PersonalSchedulerPlugin, task: CalendarTask): void {
   const row = parent.createDiv({ cls: `cb-week-task-name ${priorityClass(task)}` });
   row.draggable = true;
   row.addEventListener("dragstart", (event) => setDragTask(event, task.id));
+  row.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
   row.createSpan({ cls: "cb-week-priority cb-priority-marker", text: priorityLabel(task) });
   row.createSpan({ cls: "cb-week-task-content", text: taskContentLabel(task) });
 }
 
-function renderTaskTitle(parent: HTMLElement, task: CalendarTask): void {
+function renderTaskTitle(parent: HTMLElement, plugin: PersonalSchedulerPlugin, task: CalendarTask): void {
   const row = parent.createDiv({ cls: "cb-task-title-row" });
+  row.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
   row.createSpan({ cls: "cb-priority-marker", text: priorityLabel(task) });
   row.createSpan({ cls: "cb-task-title", text: task.text });
 }

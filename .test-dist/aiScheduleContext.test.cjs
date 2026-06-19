@@ -65,6 +65,7 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
   const pointTasks = activeTasks.filter((task2) => task2.taskKind !== "long");
   const pointLoadTasks = loadTasks.filter((task2) => task2.taskKind !== "long");
   const longTasks = activeTasks.filter((task2) => task2.taskKind === "long");
+  const topLevelLongTasks = longTasks.filter((task2) => !task2.parentLongTaskId);
   const visibleDates = new Set(days.map((day) => day.date));
   const tasksByDate = {};
   const dayLoads = {};
@@ -111,7 +112,7 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
     unifiedUnscheduledTasks,
     dayLoads,
     spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, longTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) : [],
     longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
@@ -128,7 +129,34 @@ function buildChildTasksByLongTaskId(tasks) {
     children.push(task2);
     byParent.set(task2.parentLongTaskId, children);
   }
+  for (const [parentId, children] of byParent) {
+    byParent.set(parentId, sortLongTaskChildren(children));
+  }
   return byParent;
+}
+function sortLongTaskChildren(tasks) {
+  return [...tasks].sort((a, b) => {
+    const leftDate = childTaskSortDate(a);
+    const rightDate = childTaskSortDate(b);
+    if (leftDate && rightDate) {
+      const dateCompare = leftDate.localeCompare(rightDate);
+      if (dateCompare !== 0)
+        return dateCompare;
+    } else if (leftDate) {
+      return -1;
+    } else if (rightDate) {
+      return 1;
+    }
+    const endCompare = (a.spanEnd ?? "").localeCompare(b.spanEnd ?? "");
+    if (endCompare !== 0)
+      return endCompare;
+    return a.id.localeCompare(b.id);
+  });
+}
+function childTaskSortDate(task2) {
+  if (task2.taskKind === "long")
+    return task2.spanStart ?? task2.scheduleDate;
+  return task2.scheduleDate;
 }
 function normalizePriorityRank(priority) {
   const normalized = normalizeTaskPriority(priority);

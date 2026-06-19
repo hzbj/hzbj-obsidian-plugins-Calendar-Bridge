@@ -116,7 +116,7 @@ function renderPointPoolTask(parent: HTMLElement, plugin: PersonalSchedulerPlugi
   card.draggable = true;
   card.addEventListener("dragstart", (event) => setDragTask(event, task.id));
   card.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, task));
-  renderTaskTitle(card, task);
+  renderTaskTitle(card, plugin, task);
   const meta = card.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task) });
   if (task.estimateMinutes) meta.createSpan({ cls: "cb-chip", text: formatMinutes(task.estimateMinutes) });
@@ -127,7 +127,7 @@ function renderPointPoolTask(parent: HTMLElement, plugin: PersonalSchedulerPlugi
 function renderLongPoolTask(parent: HTMLElement, plugin: PersonalSchedulerPlugin, task: CalendarTask): void {
   const card = parent.createDiv({ cls: `cb-task-card cb-long-task-card ${priorityClass(task)}` });
   card.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, task));
-  renderTaskTitle(card, task);
+  renderTaskTitle(card, plugin, task);
   const meta = card.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task) });
   meta.createSpan({ cls: "cb-chip", text: `progress ${task.progressPercent ?? 0}%` });
@@ -138,8 +138,9 @@ function renderLongPoolTask(parent: HTMLElement, plugin: PersonalSchedulerPlugin
   });
 }
 
-function renderTaskTitle(parent: HTMLElement, task: CalendarTask): void {
+function renderTaskTitle(parent: HTMLElement, plugin: PersonalSchedulerPlugin, task: CalendarTask): void {
   const row = parent.createDiv({ cls: "cb-task-title-row" });
+  row.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
   row.createSpan({ cls: "cb-priority-marker", text: priorityLabel(task) });
   row.createSpan({ cls: "cb-task-title", text: task.text });
 }
@@ -216,6 +217,7 @@ function renderPointMonthGrid(
   for (const segment of splitSpanBarsByWeek(pointBars)) {
     const bar = grid.createDiv({ cls: "cb-span-bar" });
     bar.setText(segment.bar.task.text);
+    bar.addEventListener("click", () => void plugin.openTaskSourceNote(segment.bar.task.id));
     bar.style.gridColumn = `${segment.columnStart} / ${segment.columnEnd}`;
     bar.style.gridRow = String(segment.row);
     bar.title = `${segment.bar.task.text} ${segment.bar.startDate} -> ${segment.bar.endDate}`;
@@ -336,24 +338,42 @@ function renderLongVerticalTask(
   bar.style.gridColumn = String(row.lane);
   bar.toggleClass("is-clipped-start", row.clippedStart);
   bar.toggleClass("is-clipped-end", row.clippedEnd);
-  renderTaskTitle(bar, row.task);
+  renderTaskTitle(bar, plugin, row.task);
   const meta = bar.createDiv({ cls: "cb-meta-row" });
   meta.createSpan({ cls: "cb-chip", text: `${shortDate(row.fullStartDate)} - ${shortDate(row.fullEndDate)}` });
   meta.createSpan({ cls: "cb-chip", text: `progress ${row.task.progressPercent ?? 0}%` });
   if (row.clippedStart || row.clippedEnd) meta.createSpan({ cls: "cb-chip cb-chip-info", text: "continues" });
   if (row.status) meta.createSpan({ cls: "cb-chip", text: row.status });
-  renderLongTaskChildren(bar, row.childTasks);
+  renderLongTaskChildren(bar, plugin, row.childTasks);
 }
 
-function renderLongTaskChildren(parent: HTMLElement, childTasks: CalendarTask[]): void {
+function renderLongTaskChildren(parent: HTMLElement, plugin: PersonalSchedulerPlugin, childTasks: CalendarTask[]): void {
   if (childTasks.length === 0) return;
   const list = parent.createDiv({ cls: "cb-long-child-list" });
   for (const child of childTasks) {
+    const schedule = childTaskScheduleLabel(child);
+    if (child.taskKind === "long" && schedule) {
+      renderChildLongTaskCard(list, plugin, child, schedule);
+      continue;
+    }
     const item = list.createDiv({ cls: "cb-long-child-item" });
     item.createSpan({ cls: "cb-long-child-title", text: childTaskContentLabel(child) });
-    const schedule = childTaskScheduleLabel(child);
     if (schedule) item.createSpan({ cls: "cb-long-child-time", text: schedule });
   }
+}
+
+function renderChildLongTaskCard(parent: HTMLElement, plugin: PersonalSchedulerPlugin, task: CalendarTask, schedule: string): void {
+  const item = parent.createDiv({ cls: `cb-long-child-card ${priorityClass(task)}` });
+  item.draggable = true;
+  item.addEventListener("dragstart", (event) => {
+    // Child cards are nested in a draggable parent bar; keep the child's id from being overwritten.
+    event.stopPropagation();
+    setDragTask(event, task.id);
+  });
+  const header = item.createDiv({ cls: "cb-long-child-card-header" });
+  header.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
+  header.createSpan({ cls: "cb-long-child-card-title", text: childTaskContentLabel(task) });
+  header.createSpan({ cls: "cb-long-child-card-range", text: schedule });
 }
 
 function renderParentLongTaskChip(parent: HTMLElement, task: CalendarTask): void {

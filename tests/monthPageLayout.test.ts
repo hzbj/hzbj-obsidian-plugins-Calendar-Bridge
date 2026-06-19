@@ -63,6 +63,52 @@ test("renders parent long-task labels in point pools and child tasks inside long
   assert.match(source, /function renderParentLongTaskChip/);
   assert.match(source, /renderParentLongTaskChip\(meta, task\)/);
   assert.match(source, /function renderLongTaskChildren/);
-  assert.match(source, /renderLongTaskChildren\(bar, row\.childTasks\)/);
+  assert.match(source, /renderLongTaskChildren\(bar, plugin, row\.childTasks\)/);
   assert.match(source, /function childTaskScheduleLabel/);
+});
+
+test("renders scheduled child long tasks as draggable cards inside parent bars", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+  const css = readFileSync("styles.css", "utf8");
+
+  assert.match(source, /function renderChildLongTaskCard/);
+  assert.match(source, /renderChildLongTaskCard\(list, plugin, child, schedule\)/);
+  assert.match(source, /item\.draggable = true/);
+  assert.match(source, /setDragTask\(event, task\.id\)/);
+  assert.match(css, /\.cb-long-child-card/);
+  assert.match(css, /\.cb-long-child-card-header/);
+  assert.match(css, /\.cb-long-child-card-range/);
+});
+
+test("keeps child long task drag ids from bubbling into the parent bar", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+  const childCard = source.slice(source.indexOf("function renderChildLongTaskCard"), source.indexOf("function renderParentLongTaskChip"));
+
+  assert.match(childCard, /event\.stopPropagation\(\)/);
+  assert.match(childCard, /setDragTask\(event, task\.id\)/);
+});
+
+test("keeps child long task titles readable beside range labels", () => {
+  const css = readFileSync("styles.css", "utf8");
+
+  assert.match(css, /\.cb-long-child-card-header\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+  assert.match(css, /\.cb-long-child-card-title\s*\{[^}]*white-space:\s*normal/s);
+  assert.match(css, /\.cb-long-child-card-title\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+  assert.match(css, /\.cb-long-child-card-range\s*\{[^}]*justify-self:\s*start/s);
+});
+
+test("opens the source note when month task titles are clicked", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+  const title = source.slice(source.indexOf("function renderTaskTitle"), source.indexOf("function renderLongVerticalTimeline"));
+  const pointPool = source.slice(source.indexOf("function renderPointPoolTask"), source.indexOf("function renderLongPoolTask"));
+  const longPool = source.slice(source.indexOf("function renderLongPoolTask"), source.indexOf("function renderTaskTitle"));
+  const longBar = source.slice(source.indexOf("function renderLongVerticalTask"), source.indexOf("function renderLongTaskChildren"));
+  const childCard = source.slice(source.indexOf("function renderChildLongTaskCard"), source.indexOf("function renderParentLongTaskChip"));
+
+  assert.match(title, /plugin: PersonalSchedulerPlugin/);
+  assert.match(title, /addEventListener\("click", \(\) => void plugin\.openTaskSourceNote\(task\.id\)\)/);
+  assert.match(pointPool, /renderTaskTitle\(card, plugin, task\)/);
+  assert.match(longPool, /renderTaskTitle\(card, plugin, task\)/);
+  assert.match(longBar, /renderTaskTitle\(bar, plugin, row\.task\)/);
+  assert.match(childCard, /openTaskSourceNote\(task\.id\)/);
 });

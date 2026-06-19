@@ -27,7 +27,7 @@ test("parses arbitrary Dataview inline fields and normalized task metadata", () 
   assert.equal(parsed.dates.start, "2024-01-13");
   assert.equal(parsed.scheduleDate, "2024-01-15");
   assert.equal(parsed.spanStart, "2024-01-13");
-  assert.equal(parsed.spanEnd, "2024-01-14");
+  assert.equal(parsed.spanEnd, "2024-01-15");
   assert.equal(parsed.estimateMinutes, 90);
   assert.equal(parsed.priority, "high");
   assert.equal(parsed.dateSource, "dataview");

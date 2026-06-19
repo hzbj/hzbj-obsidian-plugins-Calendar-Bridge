@@ -22,3 +22,12 @@ var import_node_test = require("node:test");
   import_node_assert.strict.match(source, /renderParentLongTaskChip\(meta, task\)/);
   import_node_assert.strict.match(source, /parentLongTaskText/);
 });
+(0, import_node_test.test)("opens the source note when week task titles are clicked", () => {
+  const source = (0, import_node_fs.readFileSync)("src/ui/pages/WeekPage.ts", "utf8");
+  const title = source.slice(source.indexOf("function renderTaskTitle"), source.indexOf("function renderEstimateControl"));
+  const scheduled = source.slice(source.indexOf("function renderScheduledTaskName"), source.indexOf("function renderTaskTitle"));
+  import_node_assert.strict.match(title, /plugin: PersonalSchedulerPlugin/);
+  import_node_assert.strict.match(title, /addEventListener\("click", \(\) => void plugin\.openTaskSourceNote\(task\.id\)\)/);
+  import_node_assert.strict.match(source, /renderTaskTitle\(card, plugin, task\)/);
+  import_node_assert.strict.match(scheduled, /openTaskSourceNote\(task\.id\)/);
+});

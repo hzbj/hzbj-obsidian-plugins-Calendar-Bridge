@@ -175,9 +175,25 @@ test("attaches active indented child tasks to their parent long task timeline ro
   const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
   const parentRow = model.longTaskTimelineRows.find((row) => row.task.id === "l1");
 
-  assert.deepEqual(parentRow?.childTasks.map((item) => item.id), ["p1", "p2", "l2"]);
+  assert.deepEqual(model.longTaskTimelineRows.map((row) => row.task.id), ["l1"]);
+  assert.deepEqual(parentRow?.childTasks.map((item) => item.id), ["p2", "l2", "p1"]);
   assert.equal(parentRow?.childTasks.some((item) => item.id === "l1"), false);
   assert.equal(parentRow?.childTasks.some((item) => item.completed), false);
+});
+
+test("sorts parent long task children by scheduled time with unscheduled children last", () => {
+  const longTasks: CalendarTask[] = [
+    task("l1", "Parent long", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
+    task("u1", "Unscheduled child", {}, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("l2", "Later child long", { start: "2026-06-13", due: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("p1", "Earlier point child", { scheduled: "2026-06-11" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("p2", "Middle point child", { scheduled: "2026-06-12" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" })
+  ];
+
+  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
+  const parentRow = model.longTaskTimelineRows.find((row) => row.task.id === "l1");
+
+  assert.deepEqual(parentRow?.childTasks.map((item) => item.id), ["p1", "p2", "l2", "u1"]);
 });
 
 test("assigns overlapping long task bars to independent layout rows", () => {

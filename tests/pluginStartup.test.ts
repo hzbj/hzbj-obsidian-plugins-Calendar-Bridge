@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { Notice } from "obsidian";
+import { Notice, TFile } from "obsidian";
 import PersonalSchedulerPlugin from "../src/main";
 import { VIEW_TYPE_PERSONAL_SYSTEM } from "../src/models/constants";
 
@@ -140,4 +140,38 @@ test("activating the calendar moves an existing sidebar view into a main workspa
     `setViewState:${VIEW_TYPE_PERSONAL_SYSTEM}:true`,
     "revealLeaf"
   ]);
+});
+
+test("opening a task source jumps to the task note line", async () => {
+  const PluginCtor = PersonalSchedulerPlugin as unknown as { new (): PersonalSchedulerPlugin };
+  const plugin = new PluginCtor();
+  const file = new TFile();
+  (file as unknown as { path: string }).path = "Inbox.md";
+  const opened: Array<{ file: TFile; state: unknown }> = [];
+  const leaf = {
+    openFile: async (target: TFile, state: unknown) => {
+      opened.push({ file: target, state });
+    }
+  };
+  (plugin as any).app = {
+    vault: {
+      getAbstractFileByPath: (path: string) => path === "Inbox.md" ? file : null
+    },
+    workspace: {
+      getLeaf: (location: string) => {
+        assert.equal(location, false);
+        return leaf;
+      },
+      revealLeaf: (target: unknown) => {
+        assert.equal(target, leaf);
+      }
+    }
+  };
+
+  await plugin.openTaskSourceNote("Inbox.md:12");
+
+  assert.deepEqual(opened, [{
+    file,
+    state: { active: true, eState: { line: 11 } }
+  }]);
 });
