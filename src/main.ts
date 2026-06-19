@@ -25,7 +25,6 @@ export default class PersonalSchedulerPlugin extends Plugin {
     this.taskDateWriter = new TaskDateWriter(this.app);
     this.reviewPressureScanner = new ReviewPressureScanner(this.app, () => this.data.settings);
     this.aiScheduleContextExporter = new AiScheduleContextExporter(this.app);
-    await this.rescanTasks();
 
     this.registerView(VIEW_TYPE_PERSONAL_SYSTEM, (leaf) => new PersonalSystemView(leaf, this));
     this.addSettingTab(new PersonalSystemSettingTab(this));
@@ -50,6 +49,11 @@ export default class PersonalSchedulerPlugin extends Plugin {
         await this.rescanTasks();
         new Notice("Calendar Bridge tasks rescanned.");
       }
+    });
+
+    // Startup scanning touches vault files; defer it so a warm-up failure cannot abort plugin loading.
+    this.app.workspace.onLayoutReady(() => {
+      void this.rescanTasks().catch((error: unknown) => this.reportStartupScanFailure(error));
     });
   }
 
@@ -177,6 +181,11 @@ export default class PersonalSchedulerPlugin extends Plugin {
       return null;
     }
     return { file, lineNumber };
+  }
+
+  private reportStartupScanFailure(error: unknown): void {
+    console.error("Calendar Bridge startup task scan failed.", error);
+    new Notice("Calendar Bridge loaded, but startup task scan failed. Run Rescan after Obsidian finishes loading.");
   }
 }
 

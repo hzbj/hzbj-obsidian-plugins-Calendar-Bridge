@@ -1,0 +1,148 @@
+<h2>长任务竖向时间轴方案</h2>
+<p class="subtitle">请看右侧“时间轴”区域的结构。点击你更接近想要的方案；我会根据你的选择再细化，不会直接改代码。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:grid;grid-template-columns:90px 1fr;gap:10px;height:430px;background:#1f2229;border:1px solid #3a3f4d;border-radius:8px;padding:10px;color:#d8dbe5;font-size:12px;">
+        <div style="background:#252934;border-radius:6px;padding:8px;overflow:hidden;">
+          <div style="font-weight:700;margin-bottom:8px;">未排期</div>
+          <div style="background:#343948;border-radius:5px;padding:7px;margin-bottom:6px;">学术英语...</div>
+          <div style="background:#343948;border-radius:5px;padding:7px;">西语背诵...</div>
+        </div>
+        <div style="display:grid;grid-template-columns:46px 1fr;gap:6px;overflow:hidden;">
+          <div style="display:grid;grid-template-rows:repeat(16,1fr);gap:3px;">
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">15</div>
+            <div style="background:#58617a;border-radius:4px;display:grid;place-items:center;">16</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">17</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">18</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">19</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">20</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">21</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">22</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">23</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">24</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">25</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">26</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">27</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">28</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">29</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">30</div>
+          </div>
+          <div style="position:relative;border-left:1px solid #3a3f4d;background:repeating-linear-gradient(to bottom,#252934 0,#252934 24px,#2a2e39 24px,#2a2e39 25px);border-radius:6px;">
+            <div style="position:absolute;left:12px;right:20px;top:34px;height:235px;background:#dc7890;border-radius:7px;padding:8px;font-weight:700;color:#fff;line-height:1.25;">学术英语演讲准备<br><span style="font-weight:500;font-size:10px;">06-16 至 06-24 · 0%</span></div>
+            <div style="position:absolute;left:34px;right:40px;top:285px;height:62px;background:#d97890;border-radius:7px;padding:8px;font-weight:700;color:#fff;line-height:1.25;">西语背诵<br><span style="font-weight:500;font-size:10px;">06-26 至 06-28</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 竖向连续块时间轴</h3>
+      <p>日期在左侧自上而下，长任务作为一个连续竖向块跨越多天。最像“把现在的横向轴旋转 90 度”。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:grid;grid-template-columns:90px 1fr;gap:10px;height:430px;background:#1f2229;border:1px solid #3a3f4d;border-radius:8px;padding:10px;color:#d8dbe5;font-size:12px;">
+        <div style="background:#252934;border-radius:6px;padding:8px;overflow:hidden;">
+          <div style="font-weight:700;margin-bottom:8px;">未排期</div>
+          <div style="background:#343948;border-radius:5px;padding:7px;margin-bottom:6px;">学术英语...</div>
+          <div style="background:#343948;border-radius:5px;padding:7px;">西语背诵...</div>
+        </div>
+        <div style="display:grid;grid-template-columns:46px repeat(3,1fr);gap:5px;overflow:hidden;">
+          <div style="display:grid;grid-template-rows:repeat(16,1fr);gap:3px;">
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">15</div>
+            <div style="background:#58617a;border-radius:4px;display:grid;place-items:center;">16</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">17</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">18</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">19</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">20</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">21</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">22</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">23</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">24</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">25</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">26</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">27</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">28</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">29</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">30</div>
+          </div>
+          <div style="position:relative;background:#252934;border-radius:6px;">
+            <div style="position:absolute;left:6px;right:6px;top:34px;height:235px;background:#dc7890;border-radius:7px;padding:7px;color:white;font-weight:700;">学术英语<br><span style="font-size:10px;font-weight:500;">0%</span></div>
+          </div>
+          <div style="position:relative;background:#252934;border-radius:6px;">
+            <div style="position:absolute;left:6px;right:6px;top:285px;height:62px;background:#d97890;border-radius:7px;padding:7px;color:white;font-weight:700;">西语</div>
+          </div>
+          <div style="position:relative;background:#252934;border-radius:6px;">
+            <div style="position:absolute;left:6px;right:6px;top:92px;height:126px;background:#8ba0e8;border-radius:7px;padding:7px;color:white;font-weight:700;">论文</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 竖向泳道时间轴</h3>
+      <p>左侧日期轴不变，每个长任务占一条竖向泳道。重叠任务更清楚，但右侧需要横向空间。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:grid;grid-template-columns:90px 1fr;gap:10px;height:430px;background:#1f2229;border:1px solid #3a3f4d;border-radius:8px;padding:10px;color:#d8dbe5;font-size:12px;">
+        <div style="background:#252934;border-radius:6px;padding:8px;overflow:hidden;">
+          <div style="font-weight:700;margin-bottom:8px;">未排期</div>
+          <div style="background:#343948;border-radius:5px;padding:7px;margin-bottom:6px;">学术英语...</div>
+          <div style="background:#343948;border-radius:5px;padding:7px;">西语背诵...</div>
+        </div>
+        <div style="display:grid;grid-template-columns:46px 1fr;gap:6px;overflow:hidden;">
+          <div style="display:grid;grid-template-rows:repeat(16,1fr);gap:3px;">
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">15</div>
+            <div style="background:#58617a;border-radius:4px;display:grid;place-items:center;">16</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">17</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">18</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">19</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">20</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">21</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">22</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">23</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">24</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">25</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">26</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">27</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">28</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">29</div>
+            <div style="background:#303544;border-radius:4px;display:grid;place-items:center;">30</div>
+          </div>
+          <div style="display:grid;grid-template-rows:repeat(16,1fr);gap:3px;">
+            <div style="background:#252934;border-radius:4px;"></div>
+            <div style="background:#dc7890;border-radius:5px;padding:4px;color:white;font-weight:700;">学术英语演讲准备 ...</div>
+            <div style="background:#dc7890;border-radius:5px;padding:4px;color:white;">学术英语演讲准备 ...</div>
+            <div style="background:#dc7890;border-radius:5px;padding:4px;color:white;">学术英语演讲准备 ...</div>
+            <div style="background:#dc7890;border-radius:5px;padding:4px;color:white;">学术英语演讲准备 ...</div>
+            <div style="background:#dc7890;border-radius:5px;padding:4px;color:white;">学术英语演讲准备 ...</div>
+            <div style="background:#dc7890;border-radius:5px;padding:4px;color:white;">学术英语演讲准备 ...</div>
+            <div style="background:#dc7890;border-radius:5px;padding:4px;color:white;">学术英语演讲准备 ...</div>
+            <div style="background:#dc7890;border-radius:5px;padding:4px;color:white;">学术英语演讲准备 ...</div>
+            <div style="background:#dc7890;border-radius:5px;padding:4px;color:white;">学术英语演讲准备 ...</div>
+            <div style="background:#252934;border-radius:4px;"></div>
+            <div style="background:#d97890;border-radius:5px;padding:4px;color:white;font-weight:700;">西语背诵</div>
+            <div style="background:#d97890;border-radius:5px;padding:4px;color:white;">西语背诵</div>
+            <div style="background:#d97890;border-radius:5px;padding:4px;color:white;">西语背诵</div>
+            <div style="background:#252934;border-radius:4px;"></div>
+            <div style="background:#252934;border-radius:4px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 按日重复时间轴</h3>
+      <p>每个日期行都显示当天覆盖的任务。信息最直接，但长任务会重复很多次，视觉密度最高。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我的推荐</h3>
+  <p>优先选 A：它保留“跨日期连续条”的时间轴语义，同时把横向空间问题转成纵向滚动问题。B 适合重叠长任务很多的情况；C 更像日清单，不够像时间轴。</p>
+</div>

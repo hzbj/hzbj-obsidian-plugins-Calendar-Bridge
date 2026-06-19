@@ -1,0 +1,108 @@
+<h2>A 方案细化：竖向连续块时间轴</h2>
+<p class="subtitle">这版展示更接近实际插件的结构：左侧仍是未排期池，右侧是日期从上到下的时间轴，长任务用连续竖向块跨越日期。</p>
+
+<div class="mockup">
+  <div class="mockup-header">Preview: Long tasks month mode</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:minmax(210px,260px) minmax(0,1fr);gap:12px;min-height:640px;background:#202229;color:#d9dce7;font-family:system-ui,sans-serif;">
+      <aside style="border:1px solid #3a3f4d;border-radius:8px;background:#282b34;padding:12px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <strong style="font-size:15px;">Unscheduled long tasks</strong>
+          <button style="background:#343946;color:#cbd0df;border:1px solid #454b5e;border-radius:5px;padding:3px 7px;">Rescan</button>
+        </div>
+        <div style="font-size:12px;color:#9fa7bb;margin-bottom:8px;">Sort <span style="float:right;background:#1f2229;border:1px solid #3a3f4d;border-radius:5px;padding:2px 26px 2px 8px;">Manual</span></div>
+        <div style="border:1px solid #3a3f4d;border-radius:6px;background:#20232b;margin-bottom:8px;overflow:hidden;">
+          <div style="display:grid;grid-template-columns:auto 1fr auto;gap:7px;padding:7px 8px;background:#2b2f3a;font-size:12px;font-weight:700;"><span>v</span><span>学习.md</span><span>2</span></div>
+          <div style="margin:7px;border:1px solid #464d61;border-left:4px solid #e37d95;border-radius:6px;background:#242833;padding:8px;">
+            <div style="font-size:12px;font-weight:700;white-space:normal;line-height:1.35;">Highest 学术英语演讲准备与资料整理</div>
+            <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;"><span style="font-size:10px;background:#373d4b;border-radius:999px;padding:2px 6px;color:#e37d95;">highest</span><span style="font-size:10px;background:#373d4b;border-radius:999px;padding:2px 6px;">progress 0%</span></div>
+            <button style="margin-top:7px;background:#353b4b;color:#d8dce9;border:1px solid #4a5165;border-radius:5px;padding:3px 7px;font-size:11px;">Set range</button>
+          </div>
+          <div style="margin:7px;border:1px solid #464d61;border-left:4px solid #879de8;border-radius:6px;background:#242833;padding:8px;">
+            <div style="font-size:12px;font-weight:700;white-space:normal;line-height:1.35;">High 论文提纲与阅读笔记</div>
+            <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;"><span style="font-size:10px;background:#373d4b;border-radius:999px;padding:2px 6px;color:#aab8ff;">high</span><span style="font-size:10px;background:#373d4b;border-radius:999px;padding:2px 6px;">progress 20%</span></div>
+            <button style="margin-top:7px;background:#353b4b;color:#d8dce9;border:1px solid #4a5165;border-radius:5px;padding:3px 7px;font-size:11px;">Set range</button>
+          </div>
+        </div>
+      </aside>
+
+      <main style="border:1px solid #3a3f4d;border-radius:8px;background:#282b34;padding:12px;min-width:0;overflow:hidden;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <strong style="font-size:15px;margin-right:auto;">Month</strong>
+          <button style="background:#343946;color:#cbd0df;border:1px solid #454b5e;border-radius:5px;padding:4px 8px;">Prev</button>
+          <button style="background:#343946;color:#cbd0df;border:1px solid #454b5e;border-radius:5px;padding:4px 8px;">Today</button>
+          <button style="background:#343946;color:#cbd0df;border:1px solid #454b5e;border-radius:5px;padding:4px 8px;">Next</button>
+          <div style="border:1px solid #454b5e;border-radius:6px;padding:2px;background:#20232b;"><button style="background:#5b6cc9;color:white;border:0;border-radius:4px;padding:4px 8px;">Long tasks</button><button style="background:transparent;color:#9fa7bb;border:0;padding:4px 8px;">Point tasks</button></div>
+        </div>
+        <div style="background:#20232b;border-radius:6px;color:#aab2c5;font-size:12px;padding:7px 9px;margin-bottom:10px;">Long task mode: click Set range, then choose start and end dates on the vertical timeline.</div>
+
+        <div style="display:grid;grid-template-columns:58px minmax(0,1fr);gap:8px;height:540px;overflow:auto;padding-right:4px;">
+          <div style="position:relative;display:grid;grid-template-rows:repeat(16,34px);gap:4px;">
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">15</div>
+            <div style="display:grid;place-items:center;background:#5b6cc9;border:1px solid #7180dc;border-radius:5px;color:white;font-weight:800;">16</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">17</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">18</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">19</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">20</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">21</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">22</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">23</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">24</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">25</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">26</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">27</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">28</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">29</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">30</div>
+          </div>
+
+          <div style="position:relative;min-width:0;border:1px solid #3a3f4d;border-radius:7px;background:repeating-linear-gradient(to bottom,#242833 0,#242833 33px,#313746 33px,#313746 34px,#242833 34px,#242833 38px);height:604px;overflow:hidden;">
+            <div style="position:absolute;left:0;right:0;top:38px;height:34px;background:rgba(91,108,201,.18);border-top:1px solid rgba(91,108,201,.45);border-bottom:1px solid rgba(91,108,201,.45);"></div>
+
+            <div style="position:absolute;left:14px;right:54px;top:42px;height:338px;background:#df7891;border-radius:8px;padding:9px 11px;color:white;box-shadow:0 8px 20px rgba(0,0,0,.22);">
+              <div style="font-size:13px;font-weight:800;line-height:1.3;white-space:normal;overflow-wrap:anywhere;">学术英语演讲准备与资料整理</div>
+              <div style="margin-top:6px;font-size:11px;opacity:.92;">06-16 - 06-24 · progress 0%</div>
+              <div style="position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(255,255,255,.28);border-radius:0 0 8px 8px;"><div style="width:0;height:100%;background:white;border-radius:inherit;"></div></div>
+            </div>
+
+            <div style="position:absolute;left:54px;right:18px;top:118px;height:186px;background:#879de8;border-radius:8px;padding:9px 11px;color:white;box-shadow:0 8px 20px rgba(0,0,0,.18);">
+              <div style="font-size:13px;font-weight:800;line-height:1.3;white-space:normal;overflow-wrap:anywhere;">论文提纲与阅读笔记</div>
+              <div style="margin-top:6px;font-size:11px;opacity:.92;">06-18 - 06-22 · progress 20%</div>
+              <div style="position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(255,255,255,.25);border-radius:0 0 8px 8px;"><div style="width:20%;height:100%;background:white;border-radius:inherit;"></div></div>
+            </div>
+
+            <div style="position:absolute;left:18px;right:120px;top:418px;height:110px;background:#d97890;border-radius:8px;padding:9px 11px;color:white;box-shadow:0 8px 20px rgba(0,0,0,.18);">
+              <div style="font-size:13px;font-weight:800;line-height:1.3;white-space:normal;overflow-wrap:anywhere;">西语背诵</div>
+              <div style="margin-top:6px;font-size:11px;opacity:.92;">06-26 - 06-28</div>
+            </div>
+
+            <div style="position:absolute;left:0;right:0;top:0;height:20px;background:linear-gradient(to bottom,#242833,rgba(36,40,51,0));"></div>
+            <div style="position:absolute;left:0;right:0;bottom:0;height:20px;background:linear-gradient(to top,#242833,rgba(36,40,51,0));"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="approve-a-detail" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>这个方向可以执行</h3>
+      <p>按这版做：日期竖向轴 + 连续任务块 + 重叠时横向错开。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="needs-adjustment" onclick="toggleSelect(this)">
+    <div class="letter">!</div>
+    <div class="content">
+      <h3>还需要调整</h3>
+      <p>比如块太高、日期太密、重叠方式不对、需要显示更多字段等。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>实现含义</h3>
+  <p>这会替换当前长任务右侧的普通竖向卡片列表，但不改数据机制：仍然使用 <code>start/due</code> 作为长任务范围，<code>scheduled</code> 仍只属于点任务。Set range 仍通过点击时间轴日期完成。</p>
+</div>

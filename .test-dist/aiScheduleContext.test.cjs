@@ -61,7 +61,9 @@ function buildMonthViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {
 }
 function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}) {
   const activeTasks = tasks.filter((task2) => !task2.completed);
+  const loadTasks = mode === "month" ? tasks : activeTasks;
   const pointTasks = activeTasks.filter((task2) => task2.taskKind !== "long");
+  const pointLoadTasks = loadTasks.filter((task2) => task2.taskKind !== "long");
   const longTasks = activeTasks.filter((task2) => task2.taskKind === "long");
   const visibleDates = new Set(days.map((day) => day.date));
   const tasksByDate = {};
@@ -78,7 +80,7 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
       heatScore: review.minutes
     };
   }
-  for (const task2 of pointTasks) {
+  for (const task2 of pointLoadTasks) {
     for (const date of activeDatesForTask(task2, days[0]?.date, days[days.length - 1]?.date, mode)) {
       if (!visibleDates.has(date))
         continue;

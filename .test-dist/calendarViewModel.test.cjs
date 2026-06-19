@@ -84,7 +84,9 @@ function buildWeekViewModel(anchorDate, tasks2, weekStartsOn, reviewPressure2 = 
 }
 function buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}) {
   const activeTasks = tasks2.filter((task2) => !task2.completed);
+  const loadTasks = mode === "month" ? tasks2 : activeTasks;
   const pointTasks = activeTasks.filter((task2) => task2.taskKind !== "long");
+  const pointLoadTasks = loadTasks.filter((task2) => task2.taskKind !== "long");
   const longTasks = activeTasks.filter((task2) => task2.taskKind === "long");
   const visibleDates = new Set(days.map((day) => day.date));
   const tasksByDate = {};
@@ -101,7 +103,7 @@ function buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnesti
       heatScore: review.minutes
     };
   }
-  for (const task2 of pointTasks) {
+  for (const task2 of pointLoadTasks) {
     for (const date of activeDatesForTask(task2, days[0]?.date, days[days.length - 1]?.date, mode)) {
       if (!visibleDates.has(date))
         continue;
@@ -390,11 +392,18 @@ var reviewPressure = {
   import_node_assert.strict.equal(model.days.length, 42);
   import_node_assert.strict.equal(model.days[0].date, "2024-01-01");
   import_node_assert.strict.equal(model.unscheduledTasks.map((item) => item.id).join(","), "a,e,f");
-  import_node_assert.strict.equal(model.dayLoads["2024-01-15"].taskCount, 1);
-  import_node_assert.strict.equal(model.dayLoads["2024-01-15"].taskMinutes, 45);
+  import_node_assert.strict.equal(model.dayLoads["2024-01-15"].taskCount, 2);
+  import_node_assert.strict.equal(model.dayLoads["2024-01-15"].taskMinutes, 105);
   import_node_assert.strict.equal(model.dayLoads["2024-01-15"].reviewMinutes, 11);
-  import_node_assert.strict.equal(model.dayLoads["2024-01-15"].heatScore, 56);
+  import_node_assert.strict.equal(model.dayLoads["2024-01-15"].heatScore, 116);
   import_node_assert.strict.equal(model.dayLoads["2024-01-17"].taskMinutes, 120);
+});
+(0, import_node_test.test)("keeps completed point task pressure as month history", () => {
+  const model = buildMonthViewModel("2024-01-16", tasks, 1, reviewPressure, 30);
+  import_node_assert.strict.deepEqual(model.tasksByDate["2024-01-15"].map((item) => item.id), ["b", "d"]);
+  import_node_assert.strict.equal(model.dayLoads["2024-01-15"].taskCount, 2);
+  import_node_assert.strict.equal(model.dayLoads["2024-01-15"].taskMinutes, 105);
+  import_node_assert.strict.equal(model.dayLoads["2024-01-15"].heatScore, 116);
 });
 (0, import_node_test.test)("builds month span bars clipped to the visible grid", () => {
   const model = buildMonthViewModel("2024-01-16", tasks, 1, reviewPressure, 30);

@@ -1,0 +1,102 @@
+<h2>重叠任务标题不遮挡的处理方式</h2>
+<p class="subtitle">你说得对：重叠任务不能互相盖住。下面这版把重叠任务拆成独立泳道，每个长任务块都有自己的列，标题不会被后面的块挡住。</p>
+
+<div class="mockup">
+  <div class="mockup-header">Recommended: 竖向时间轴 + 不重叠泳道</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:minmax(210px,260px) minmax(0,1fr);gap:12px;min-height:640px;background:#202229;color:#d9dce7;font-family:system-ui,sans-serif;">
+      <aside style="border:1px solid #3a3f4d;border-radius:8px;background:#282b34;padding:12px;overflow:hidden;">
+        <strong style="display:block;font-size:15px;margin-bottom:10px;">Unscheduled long tasks</strong>
+        <div style="border:1px solid #3a3f4d;border-radius:6px;background:#20232b;margin-bottom:8px;overflow:hidden;">
+          <div style="display:grid;grid-template-columns:auto 1fr auto;gap:7px;padding:7px 8px;background:#2b2f3a;font-size:12px;font-weight:700;"><span>v</span><span>学习.md</span><span>3</span></div>
+          <div style="margin:7px;border:1px solid #464d61;border-left:4px solid #e37d95;border-radius:6px;background:#242833;padding:8px;">
+            <div style="font-size:12px;font-weight:700;white-space:normal;line-height:1.35;">Highest 学术英语演讲准备与资料整理</div>
+            <button style="margin-top:7px;background:#353b4b;color:#d8dce9;border:1px solid #4a5165;border-radius:5px;padding:3px 7px;font-size:11px;">Set range</button>
+          </div>
+          <div style="margin:7px;border:1px solid #464d61;border-left:4px solid #879de8;border-radius:6px;background:#242833;padding:8px;">
+            <div style="font-size:12px;font-weight:700;white-space:normal;line-height:1.35;">High 论文提纲与阅读笔记</div>
+            <button style="margin-top:7px;background:#353b4b;color:#d8dce9;border:1px solid #4a5165;border-radius:5px;padding:3px 7px;font-size:11px;">Set range</button>
+          </div>
+        </div>
+      </aside>
+
+      <main style="border:1px solid #3a3f4d;border-radius:8px;background:#282b34;padding:12px;min-width:0;overflow:hidden;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <strong style="font-size:15px;margin-right:auto;">Month</strong>
+          <button style="background:#343946;color:#cbd0df;border:1px solid #454b5e;border-radius:5px;padding:4px 8px;">Prev</button>
+          <button style="background:#343946;color:#cbd0df;border:1px solid #454b5e;border-radius:5px;padding:4px 8px;">Today</button>
+          <button style="background:#343946;color:#cbd0df;border:1px solid #454b5e;border-radius:5px;padding:4px 8px;">Next</button>
+          <div style="border:1px solid #454b5e;border-radius:6px;padding:2px;background:#20232b;"><button style="background:#5b6cc9;color:white;border:0;border-radius:4px;padding:4px 8px;">Long tasks</button><button style="background:transparent;color:#9fa7bb;border:0;padding:4px 8px;">Point tasks</button></div>
+        </div>
+        <div style="background:#20232b;border-radius:6px;color:#aab2c5;font-size:12px;padding:7px 9px;margin-bottom:10px;">重叠任务按泳道排开：同一时间段内不会互相覆盖。</div>
+
+        <div style="display:grid;grid-template-columns:58px minmax(520px,1fr);gap:8px;height:540px;overflow:auto;padding-right:4px;">
+          <div style="display:grid;grid-template-rows:repeat(16,34px);gap:4px;">
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">15</div>
+            <div style="display:grid;place-items:center;background:#5b6cc9;border:1px solid #7180dc;border-radius:5px;color:white;font-weight:800;">16</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">17</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">18</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">19</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">20</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">21</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">22</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">23</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">24</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">25</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">26</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">27</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">28</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">29</div>
+            <div style="display:grid;place-items:center;background:#303544;border:1px solid #414759;border-radius:5px;color:#b9c0d2;font-weight:700;">30</div>
+          </div>
+
+          <div style="position:relative;min-width:520px;border:1px solid #3a3f4d;border-radius:7px;background:repeating-linear-gradient(to bottom,#242833 0,#242833 33px,#313746 33px,#313746 34px,#242833 34px,#242833 38px);height:604px;overflow:hidden;">
+            <div style="position:absolute;left:0;right:0;top:38px;height:34px;background:rgba(91,108,201,.18);border-top:1px solid rgba(91,108,201,.45);border-bottom:1px solid rgba(91,108,201,.45);"></div>
+
+            <div style="position:absolute;left:12px;width:31%;top:42px;height:338px;background:#df7891;border-radius:8px;padding:9px 11px;color:white;box-shadow:0 8px 20px rgba(0,0,0,.18);">
+              <div style="font-size:13px;font-weight:800;line-height:1.25;white-space:normal;overflow-wrap:anywhere;">学术英语演讲准备与资料整理</div>
+              <div style="margin-top:6px;font-size:11px;opacity:.92;">06-16 - 06-24 · 0%</div>
+            </div>
+
+            <div style="position:absolute;left:35%;width:31%;top:118px;height:186px;background:#879de8;border-radius:8px;padding:9px 11px;color:white;box-shadow:0 8px 20px rgba(0,0,0,.18);">
+              <div style="font-size:13px;font-weight:800;line-height:1.25;white-space:normal;overflow-wrap:anywhere;">论文提纲与阅读笔记</div>
+              <div style="margin-top:6px;font-size:11px;opacity:.92;">06-18 - 06-22 · 20%</div>
+            </div>
+
+            <div style="position:absolute;left:68%;width:28%;top:156px;height:110px;background:#66b894;border-radius:8px;padding:9px 11px;color:white;box-shadow:0 8px 20px rgba(0,0,0,.18);">
+              <div style="font-size:13px;font-weight:800;line-height:1.25;white-space:normal;overflow-wrap:anywhere;">口语练习</div>
+              <div style="margin-top:6px;font-size:11px;opacity:.92;">06-19 - 06-21</div>
+            </div>
+
+            <div style="position:absolute;left:12px;width:31%;top:418px;height:110px;background:#d97890;border-radius:8px;padding:9px 11px;color:white;box-shadow:0 8px 20px rgba(0,0,0,.18);">
+              <div style="font-size:13px;font-weight:800;line-height:1.25;white-space:normal;overflow-wrap:anywhere;">西语背诵</div>
+              <div style="margin-top:6px;font-size:11px;opacity:.92;">06-26 - 06-28</div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>规则修正</h3>
+  <p>实现时不能让块互相盖住。需要用和现有“重叠行分配”类似的算法，只是方向换成竖向：重叠的时间段分配到不同 lane；不重叠的任务可以复用 lane。lane 太多时，时间轴区域横向滚动，而不是压到看不见标题。</p>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="approve-lanes" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>按不重叠泳道执行</h3>
+      <p>连续竖向块保留，重叠任务分列显示，标题不互相遮挡。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="adjust-lanes" onclick="toggleSelect(this)">
+    <div class="letter">!</div>
+    <div class="content">
+      <h3>还要继续调</h3>
+      <p>比如最多几条泳道、是否横向滚动、标题显示几行、是否需要悬浮详情。</p>
+    </div>
+  </div>
+</div>

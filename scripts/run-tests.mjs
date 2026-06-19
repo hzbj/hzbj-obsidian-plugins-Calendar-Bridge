@@ -8,6 +8,15 @@ rmSync(outdir, { recursive: true, force: true });
 mkdirSync(outdir, { recursive: true });
 
 const tests = readdirSync("tests").filter((name) => name.endsWith(".test.ts"));
+const obsidianMockPlugin = {
+  name: "obsidian-mock",
+  setup(build) {
+    build.onResolve({ filter: /^obsidian$/ }, () => ({
+      path: join(process.cwd(), "tests", "mocks", "obsidian.ts")
+    }));
+  }
+};
+
 for (const testFile of tests) {
   await esbuild.build({
     entryPoints: [join("tests", testFile)],
@@ -16,7 +25,7 @@ for (const testFile of tests) {
     format: "cjs",
     target: "node20",
     outfile: join(outdir, testFile.replace(".ts", ".cjs")),
-    external: ["obsidian"]
+    plugins: [obsidianMockPlugin]
   });
 }
 

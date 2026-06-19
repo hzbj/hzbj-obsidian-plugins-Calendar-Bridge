@@ -25,11 +25,19 @@ test("builds a 42-cell month heatmap model with scheduled load and review pressu
   assert.equal(model.days.length, 42);
   assert.equal(model.days[0].date, "2024-01-01");
   assert.equal(model.unscheduledTasks.map((item) => item.id).join(","), "a,e,f");
-  assert.equal(model.dayLoads["2024-01-15"].taskCount, 1);
-  assert.equal(model.dayLoads["2024-01-15"].taskMinutes, 45);
+  assert.equal(model.dayLoads["2024-01-15"].taskCount, 2);
+  assert.equal(model.dayLoads["2024-01-15"].taskMinutes, 105);
   assert.equal(model.dayLoads["2024-01-15"].reviewMinutes, 11);
-  assert.equal(model.dayLoads["2024-01-15"].heatScore, 56);
+  assert.equal(model.dayLoads["2024-01-15"].heatScore, 116);
   assert.equal(model.dayLoads["2024-01-17"].taskMinutes, 120);
+});
+
+test("keeps completed point task pressure as month history", () => {
+  const model = buildMonthViewModel("2024-01-16", tasks, 1, reviewPressure, 30);
+  assert.deepEqual(model.tasksByDate["2024-01-15"].map((item) => item.id), ["b", "d"]);
+  assert.equal(model.dayLoads["2024-01-15"].taskCount, 2);
+  assert.equal(model.dayLoads["2024-01-15"].taskMinutes, 105);
+  assert.equal(model.dayLoads["2024-01-15"].heatScore, 116);
 });
 
 test("builds month span bars clipped to the visible grid", () => {

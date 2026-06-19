@@ -14,6 +14,7 @@ interface TimelineRow {
   task: CalendarTask;
   startDay: number;
   endDay: number;
+  lane: number;
   fullStartDate: string;
   fullEndDate: string;
   clippedStart: boolean;
@@ -40,7 +41,7 @@ export function renderMonthPage(container: HTMLElement, plugin: PersonalSchedule
 
   if (viewMode === "long") {
     renderGroupedPool(shell.createDiv({ cls: "cb-panel cb-task-pool" }), plugin, model, viewMode);
-    renderTimeline(shell.createDiv({ cls: "cb-panel cb-month" }), plugin, context, model, viewMode, () => renderMonthPage(container, plugin, context));
+    renderLongVerticalTimeline(shell.createDiv({ cls: "cb-panel cb-month" }), plugin, context, model, viewMode, () => renderMonthPage(container, plugin, context));
     return;
   }
 
@@ -140,7 +141,7 @@ function renderTaskTitle(parent: HTMLElement, task: CalendarTask): void {
   row.createSpan({ cls: "cb-task-title", text: task.text });
 }
 
-function renderTimeline(
+function renderLongVerticalTimeline(
   parent: HTMLElement,
   plugin: PersonalSchedulerPlugin,
   context: CalendarPageContext,
@@ -150,27 +151,22 @@ function renderTimeline(
 ): void {
   renderToolbar(parent, context, plugin, viewMode);
   renderRangeHint(parent, plugin, viewMode);
-  const rows = buildLongTimelineRows(model);
+  const rows = assignVerticalTimelineLanes(buildLongTimelineRows(model));
   const monthDays = model.days.filter((day) => day.inCurrentMonth);
-  const timeline = parent.createDiv({ cls: "cb-month-timeline" });
-  timeline.style.setProperty("--cb-month-days", String(Math.max(1, monthDays.length)));
+  const laneCount = Math.max(1, ...rows.map((row) => row.lane));
 
-  const axis = timeline.createDiv({ cls: "cb-month-timeline-axis" });
-  axis.createDiv({ cls: "cb-timeline-axis-title", text: "Task" });
-  const dayAxis = axis.createDiv({ cls: "cb-timeline-day-axis" });
-  for (const day of monthDays) {
-    const button = dayAxis.createEl("button", { cls: "cb-timeline-day-button", text: String(day.dayOfMonth) });
-    button.toggleClass("is-today", day.isToday);
-    button.title = day.date;
-    setupTimelineDateTarget(button, plugin, day.date, viewMode, rerender);
-  }
+  const timeline = parent.createDiv({ cls: "cb-long-vertical-timeline" });
+  timeline.style.setProperty("--cb-long-days", String(Math.max(1, monthDays.length)));
+  timeline.style.setProperty("--cb-long-lanes", String(laneCount));
+  renderLongDatePicker(timeline, plugin, monthDays, viewMode, rerender);
 
+  const track = timeline.createDiv({ cls: "cb-long-vertical-track" });
   if (rows.length === 0) {
-    timeline.createDiv({ cls: "cb-empty", text: viewMode === "long" ? "No long task ranges in this month." : "No scheduled point tasks in this month." });
+    track.createDiv({ cls: "cb-empty", text: "No long task ranges in this month." });
     return;
   }
 
-  for (const row of rows) renderTimelineRow(timeline, plugin, row, monthDays, viewMode, rerender);
+  for (const row of rows) renderLongVerticalTask(track, plugin, row);
 }
 
 function renderPointMonthGrid(
@@ -263,6 +259,7 @@ function buildLongTimelineRows(model: CalendarViewModel): TimelineRow[] {
     task: row.task,
     startDay: row.startDay,
     endDay: row.endDay,
+    lane: 1,
     fullStartDate: row.fullStartDate,
     fullEndDate: row.fullEndDate,
     clippedStart: row.isClippedStart,
@@ -272,37 +269,56 @@ function buildLongTimelineRows(model: CalendarViewModel): TimelineRow[] {
   }));
 }
 
-function renderTimelineRow(
+function assignVerticalTimelineLanes(rows: TimelineRow[]): TimelineRow[] {
+  const lastEndByLane: number[] = [];
+  return rows.map((row) => {
+    let laneIndex = lastEndByLane.findIndex((lastEnd) => lastEnd < row.startDay);
+    if (laneIndex < 0) {
+      laneIndex = lastEndByLane.length;
+      lastEndByLane.push(row.endDay);
+    } else {
+      lastEndByLane[laneIndex] = row.endDay;
+    }
+    return { ...row, lane: laneIndex + 1 };
+  });
+}
+
+function renderLongDatePicker(
   parent: HTMLElement,
   plugin: PersonalSchedulerPlugin,
-  row: TimelineRow,
   monthDays: CalendarViewModel["days"],
   viewMode: MonthTaskViewMode,
   rerender: () => void
 ): void {
-  const item = parent.createDiv({ cls: `cb-month-timeline-row ${priorityClass(row.task)}` });
-  item.toggleClass("is-overdue", row.overdue);
-
-  const info = item.createDiv({ cls: "cb-timeline-row-info" });
-  renderTaskTitle(info, row.task);
-
-  const track = item.createDiv({ cls: "cb-timeline-row-track" });
+  const picker = parent.createDiv({ cls: "cb-long-vertical-date-axis" });
   for (const day of monthDays) {
-    const cell = track.createDiv({ cls: "cb-timeline-row-day" });
-    cell.toggleClass("is-today", day.isToday);
-    cell.title = day.date;
-    setupTimelineDateTarget(cell, plugin, day.date, viewMode, rerender);
+    const button = picker.createEl("button", { cls: "cb-long-vertical-date", text: String(day.dayOfMonth) });
+    button.toggleClass("is-today", day.isToday);
+    button.title = day.date;
+    setupTimelineDateTarget(button, plugin, day.date, viewMode, rerender);
   }
+}
 
-  const bar = track.createDiv({ cls: `cb-timeline-bar ${priorityClass(row.task)}` });
+function renderLongVerticalTask(
+  parent: HTMLElement,
+  plugin: PersonalSchedulerPlugin,
+  row: TimelineRow
+): void {
+  const bar = parent.createDiv({ cls: `cb-long-vertical-bar ${priorityClass(row.task)}` });
+  bar.toggleClass("is-overdue", row.overdue);
   bar.draggable = true;
   bar.addEventListener("dragstart", (event) => setDragTask(event, row.task.id));
   bar.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, row.task));
-  bar.style.gridColumn = `${row.startDay} / ${row.endDay + 1}`;
+  bar.style.gridRow = `${row.startDay} / ${row.endDay + 1}`;
+  bar.style.gridColumn = String(row.lane);
   bar.toggleClass("is-clipped-start", row.clippedStart);
   bar.toggleClass("is-clipped-end", row.clippedEnd);
-  bar.setText(`${row.clippedStart ? "< " : ""}${row.task.text} ${row.task.progressPercent ?? 0}%${row.clippedEnd ? " >" : ""}`);
-  bar.title = `${row.task.text} ${row.task.progressPercent ?? 0}%`;
+  renderTaskTitle(bar, row.task);
+  const meta = bar.createDiv({ cls: "cb-meta-row" });
+  meta.createSpan({ cls: "cb-chip", text: `${shortDate(row.fullStartDate)} - ${shortDate(row.fullEndDate)}` });
+  meta.createSpan({ cls: "cb-chip", text: `progress ${row.task.progressPercent ?? 0}%` });
+  if (row.clippedStart || row.clippedEnd) meta.createSpan({ cls: "cb-chip cb-chip-info", text: "continues" });
+  if (row.status) meta.createSpan({ cls: "cb-chip", text: row.status });
 }
 
 function setupTimelineDateTarget(target: HTMLElement, plugin: PersonalSchedulerPlugin, date: string, viewMode: MonthTaskViewMode, rerender: () => void): void {

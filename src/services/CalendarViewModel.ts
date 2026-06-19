@@ -47,7 +47,10 @@ function buildViewModel(
   sourceGroupState: SourceTaskGroupState = {}
 ): CalendarViewModel {
   const activeTasks = tasks.filter((task) => !task.completed);
+  // Month pressure is a historical record; completing a point task should not erase its scheduled load.
+  const loadTasks = mode === "month" ? tasks : activeTasks;
   const pointTasks = activeTasks.filter((task) => task.taskKind !== "long");
+  const pointLoadTasks = loadTasks.filter((task) => task.taskKind !== "long");
   const longTasks = activeTasks.filter((task) => task.taskKind === "long");
   const visibleDates = new Set(days.map((day) => day.date));
   const tasksByDate: Record<string, CalendarTask[]> = {};
@@ -66,7 +69,7 @@ function buildViewModel(
     };
   }
 
-  for (const task of pointTasks) {
+  for (const task of pointLoadTasks) {
     for (const date of activeDatesForTask(task, days[0]?.date, days[days.length - 1]?.date, mode)) {
       if (!visibleDates.has(date)) continue;
       tasksByDate[date].push(task);
