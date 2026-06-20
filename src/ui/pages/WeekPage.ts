@@ -22,7 +22,7 @@ export function renderWeekPage(container: HTMLElement, plugin: PersonalScheduler
   const shell = container.createDiv({ cls: "cb-week-shell" });
 
   const pool = shell.createDiv({ cls: "cb-panel cb-task-pool" });
-  renderPool(pool, plugin, model.unifiedUnscheduledTasks.filter((task) => task.taskKind !== "long"));
+  renderPool(pool, plugin, model.unifiedUnscheduledTasks);
 
   const week = shell.createDiv({ cls: "cb-panel cb-week" });
   renderToolbar(week, context, plugin);
@@ -34,13 +34,13 @@ export function renderWeekPage(container: HTMLElement, plugin: PersonalScheduler
 function renderPool(parent: HTMLElement, plugin: PersonalSchedulerPlugin, unscheduled: CalendarTask[]): void {
   setupUnscheduledDropTarget(parent, plugin);
   const state = getSourceGroupState(plugin);
-  parent.createEl("h2", { text: "Unscheduled point tasks" });
+  parent.createEl("h2", { text: "Unscheduled tasks" });
   parent.createEl("button", { cls: "cb-action-button", text: "Rescan" }).addEventListener("click", () => void plugin.rescanTasks());
   renderSortToggle(parent, plugin, state);
 
   const groups = buildSourceTaskGroups(unscheduled, state);
   if (groups.length === 0) {
-    parent.createDiv({ cls: "cb-empty", text: "No unscheduled point tasks." });
+    parent.createDiv({ cls: "cb-empty", text: "No unscheduled tasks." });
     return;
   }
 

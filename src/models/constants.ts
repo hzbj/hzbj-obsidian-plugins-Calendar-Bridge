@@ -1,7 +1,6 @@
 import type { CalendarBridgeData } from "./types";
 
 export const VIEW_TYPE_PERSONAL_SYSTEM = "personal-scheduler-view";
-export const DATAVIEW_DUE_FIELD = "due";
 export const DATAVIEW_SCHEDULED_FIELD = "scheduled";
 export const DATAVIEW_START_FIELD = "start";
 export const DATAVIEW_ESTIMATE_FIELD = "estimate";

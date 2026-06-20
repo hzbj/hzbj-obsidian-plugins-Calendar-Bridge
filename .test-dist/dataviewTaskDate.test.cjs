@@ -30,8 +30,8 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
       dateSources.due = "emoji";
     }
   }
-  const scheduleDate = dates.scheduled ?? dates.due ?? dates.start;
-  const scheduleSource = scheduleDate ? dateSources.scheduled ?? dateSources.due ?? dateSources.start ?? "none" : "none";
+  const scheduleDate = dates.scheduled;
+  const scheduleSource = scheduleDate ? dateSources.scheduled ?? "none" : "none";
   const plainEstimateMinutes = extractPlainEstimateMinutes(line);
   const estimateMinutes = plainEstimateMinutes ?? firstParsedDuration(metadata.estimate);
   const durationMinutes = firstParsedDuration(metadata.duration);
@@ -79,18 +79,18 @@ function setTaskScheduleDate(line, scheduledDate) {
 }
 function setPointTaskSchedule(line, scheduledDate, defaultEstimateMinutes, createdDate) {
   const parsed = extractTaskMetadata(line, false);
-  let updated = removeFields(line, ["start", "scheduled", "due"]);
+  let updated = removePluginScheduleFields(line);
   if (parsed.plainEstimateMinutes === void 0 && parsed.estimateMinutes === void 0) {
     updated = insertPlainEstimate(updated, defaultEstimateMinutes);
   }
   if (!parsed.createdDate) {
     updated = appendField(updated, "created", createdDate);
   }
-  return appendField(appendField(updated, "scheduled", scheduledDate), "due", scheduledDate);
+  return appendField(updated, "scheduled", scheduledDate);
 }
 function setTaskSpanDates(line, startDate, scheduledDate) {
   const taggedLine = ensureTag(line, LONG_TASK_SYNC_TAG);
-  return appendField(appendField(removeFields(taggedLine, ["start", "scheduled", "due"]), "start", startDate), "due", scheduledDate);
+  return appendField(appendField(removePluginScheduleFields(taggedLine), "start", startDate), "scheduled", scheduledDate);
 }
 function setTaskEstimate(line, estimateMinutes) {
   return appendField(removeFields(line, ["estimate"]), "estimate", `${Math.max(0, Math.round(estimateMinutes))}m`);
@@ -120,7 +120,7 @@ function setTaskPriority(line, priority) {
   return appendField(removeFields(line, ["priority"]), "priority", normalized);
 }
 function clearTaskScheduleDates(line) {
-  return removeTag(removeFields(line, ["due", "scheduled", "start"]), LONG_TASK_SYNC_TAG).replace(LEGACY_EMOJI_DATE_RE, " ").replace(/[ \t]+$/u, "");
+  return removeTag(removePluginScheduleFields(line), LONG_TASK_SYNC_TAG).replace(/[ \t]+$/u, "");
 }
 function cleanTaskDisplayText(line, triggerTags) {
   const withoutCheckbox = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "");
@@ -140,6 +140,9 @@ function cleanTaskContentText(line) {
 function removeFields(line, fields) {
   const fieldSet = new Set(fields.map(normalizeFieldKey));
   return line.replace(INLINE_FIELD_RE, (full, rawKey) => fieldSet.has(normalizeFieldKey(rawKey)) ? " " : full).replace(/[ \t]+$/u, "").replace(/[ \t]{2,}(?=\[[^\]]+::)/gu, " ");
+}
+function removePluginScheduleFields(line) {
+  return removeFields(line, ["start", "scheduled"]);
 }
 function appendField(line, field, value) {
   return `${line.replace(/[ \t]+$/u, "")} [${field}:: ${value}]`;
@@ -183,7 +186,7 @@ function isDateField(key) {
 function getRangeEndDate(dates) {
   if (!dates.start)
     return void 0;
-  for (const candidate of [dates.due, dates.scheduled]) {
+  for (const candidate of [dates.scheduled]) {
     if (candidate && dates.start < candidate)
       return candidate;
   }
@@ -236,14 +239,14 @@ function parseProgressPercent(raw) {
   import_node_assert.strict.equal(parsed.dates.start, "2024-01-13");
   import_node_assert.strict.equal(parsed.scheduleDate, "2024-01-15");
   import_node_assert.strict.equal(parsed.spanStart, "2024-01-13");
-  import_node_assert.strict.equal(parsed.spanEnd, "2024-01-14");
+  import_node_assert.strict.equal(parsed.spanEnd, "2024-01-15");
   import_node_assert.strict.equal(parsed.estimateMinutes, 90);
   import_node_assert.strict.equal(parsed.priority, "high");
   import_node_assert.strict.equal(parsed.dateSource, "dataview");
 });
 (0, import_node_test.test)("parses plain estimate, created date, and manual progress fields", () => {
   const parsed = extractTaskMetadata(
-    "- [ ] \u4E2A\u4EBA\u6BD5\u4E1A\u7167\u6253\u5305\u53D1\u9001 1h #task [created:: 2026-06-17] [scheduled:: 2026-06-17] [due:: 2026-06-17] [progress:: 40%]",
+    "- [ ] Send graduation photos 1h #task [created:: 2026-06-17] [scheduled:: 2026-06-17] [due:: 2026-06-17] [progress:: 40%]",
     true
   );
   import_node_assert.strict.equal(parsed.plainEstimateMinutes, 60);
@@ -254,17 +257,26 @@ function parseProgressPercent(raw) {
   import_node_assert.strict.equal(parsed.dates.due, "2026-06-17");
 });
 (0, import_node_test.test)("parses legacy emoji date when compatibility is enabled", () => {
-  const parsed = extractTaskMetadata("- [ ] Task #task \u{1F4C5} 2024-01-14", true);
+  const parsed = extractTaskMetadata("- [ ] Task #task \u9983\u642E 2024-01-14", true);
   import_node_assert.strict.equal(parsed.dates.due, "2024-01-14");
-  import_node_assert.strict.equal(parsed.scheduleDate, "2024-01-14");
-  import_node_assert.strict.equal(parsed.dateSource, "emoji");
+  import_node_assert.strict.equal(parsed.scheduleDate, void 0);
+  import_node_assert.strict.equal(parsed.dateSource, "none");
 });
 (0, import_node_test.test)("prefers Dataview scheduled over due and legacy emoji dates", () => {
-  const parsed = extractTaskMetadata("- [ ] Task #task [due:: 2024-01-14] [scheduled:: 2024-01-16] \u{1F4C5} 2024-01-15", true);
+  const parsed = extractTaskMetadata("- [ ] Task #task [due:: 2024-01-14] [scheduled:: 2024-01-16] \u9983\u642E 2024-01-15", true);
   import_node_assert.strict.equal(parsed.dates.due, "2024-01-14");
   import_node_assert.strict.equal(parsed.dates.scheduled, "2024-01-16");
   import_node_assert.strict.equal(parsed.scheduleDate, "2024-01-16");
   import_node_assert.strict.equal(parsed.dateSource, "dataview");
+});
+(0, import_node_test.test)("does not treat due as a point schedule or long-task range end", () => {
+  const point = extractTaskMetadata("- [ ] Point #task [due:: 2024-01-14]", true);
+  const long = extractTaskMetadata("- [ ] Long #task [start:: 2024-01-13] [due:: 2024-01-14]", true);
+  import_node_assert.strict.equal(point.dates.due, "2024-01-14");
+  import_node_assert.strict.equal(point.scheduleDate, void 0);
+  import_node_assert.strict.equal(point.dateSource, "none");
+  import_node_assert.strict.equal(long.spanStart, void 0);
+  import_node_assert.strict.equal(long.spanEnd, void 0);
 });
 (0, import_node_test.test)("parses common estimate formats", () => {
   import_node_assert.strict.equal(parseDurationToMinutes("60"), 60);
@@ -278,25 +290,25 @@ function parseProgressPercent(raw) {
 });
 (0, import_node_test.test)("writes scheduled date without disturbing task content", () => {
   import_node_assert.strict.equal(
-    setTaskScheduleDate("- [ ] Check NAS #task \u23F0 21:00 [priority:: high]", "2024-01-14"),
-    "- [ ] Check NAS #task \u23F0 21:00 [priority:: high] [scheduled:: 2024-01-14]"
+    setTaskScheduleDate("- [ ] Check NAS #task \u9234?21:00 [priority:: high]", "2024-01-14"),
+    "- [ ] Check NAS #task \u9234?21:00 [priority:: high] [scheduled:: 2024-01-14]"
   );
 });
-(0, import_node_test.test)("writes point task schedule with plain estimate, created, scheduled, and due fields", () => {
+(0, import_node_test.test)("writes point task schedule with plain estimate, created, and scheduled fields", () => {
   import_node_assert.strict.equal(
-    setPointTaskSchedule("- [ ] \u4E2A\u4EBA\u6BD5\u4E1A\u7167\u6253\u5305\u53D1\u9001 #task [priority:: high]", "2026-06-17", 60, "2026-06-17"),
-    "- [ ] \u4E2A\u4EBA\u6BD5\u4E1A\u7167\u6253\u5305\u53D1\u9001 #task 1h [priority:: high] [created:: 2026-06-17] [scheduled:: 2026-06-17] [due:: 2026-06-17]"
+    setPointTaskSchedule("- [ ] Send graduation photos #task [priority:: high]", "2026-06-17", 60, "2026-06-17"),
+    "- [ ] Send graduation photos #task 1h [priority:: high] [created:: 2026-06-17] [scheduled:: 2026-06-17]"
   );
 });
 (0, import_node_test.test)("point task schedule preserves existing created and estimate values", () => {
   import_node_assert.strict.equal(
     setPointTaskSchedule(
-      "- [ ] \u4E2A\u4EBA\u6BD5\u4E1A\u7167\u6253\u5305\u53D1\u9001 45m #task [created:: 2026-06-10] [scheduled:: 2026-06-12] [due:: 2026-06-12] [context:: phone]",
+      "- [ ] Send graduation photos 45m #task [created:: 2026-06-10] [scheduled:: 2026-06-12] [due:: 2026-06-12] [context:: phone]",
       "2026-06-17",
       60,
       "2026-06-17"
     ),
-    "- [ ] \u4E2A\u4EBA\u6BD5\u4E1A\u7167\u6253\u5305\u53D1\u9001 45m #task [created:: 2026-06-10] [context:: phone] [scheduled:: 2026-06-17] [due:: 2026-06-17]"
+    "- [ ] Send graduation photos 45m #task [created:: 2026-06-10] [due:: 2026-06-12] [context:: phone] [scheduled:: 2026-06-17]"
   );
 });
 (0, import_node_test.test)("point task schedule clears stale start field and writes only point date fields", () => {
@@ -306,22 +318,22 @@ function parseProgressPercent(raw) {
     30,
     "2026-06-17"
   );
-  import_node_assert.strict.equal(updated, "- [ ] Point #task 30m [context:: desk] [created:: 2026-06-17] [scheduled:: 2026-06-17] [due:: 2026-06-17]");
+  import_node_assert.strict.equal(updated, "- [ ] Point #task 30m [due:: 2026-06-12] [context:: desk] [created:: 2026-06-17] [scheduled:: 2026-06-17]");
 });
 (0, import_node_test.test)("replaces existing scheduled date while preserving other metadata", () => {
   import_node_assert.strict.equal(
-    setTaskScheduleDate("	- [ ] Check NAS #task [scheduled:: 2024-01-13] [due:: 2024-01-12] \u23F0 21:00", "2024-01-14"),
-    "	- [ ] Check NAS #task [due:: 2024-01-12] \u23F0 21:00 [scheduled:: 2024-01-14]"
+    setTaskScheduleDate("	- [ ] Check NAS #task [scheduled:: 2024-01-13] [due:: 2024-01-12] \u9234?21:00", "2024-01-14"),
+    "	- [ ] Check NAS #task [due:: 2024-01-12] \u9234?21:00 [scheduled:: 2024-01-14]"
   );
 });
 (0, import_node_test.test)("writes span dates and estimate without removing other fields", () => {
   import_node_assert.strict.equal(
     setTaskSpanDates("- [ ] A  B #task [start:: 2024-01-10] [estimate:: 30m] [context:: phone]", "2024-01-14", "2024-01-18"),
-    "- [ ] A  B #task #\u957F\u4EFB\u52A1 [estimate:: 30m] [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
+    "- [ ] A  B #task #\u957F\u4EFB\u52A1 [estimate:: 30m] [context:: phone] [start:: 2024-01-14] [scheduled:: 2024-01-18]"
   );
   import_node_assert.strict.equal(
-    setTaskSpanDates("- [ ] A #task [scheduled:: 2024-01-12] [context:: phone]", "2024-01-14", "2024-01-18"),
-    "- [ ] A #task #\u957F\u4EFB\u52A1 [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
+    setTaskSpanDates("- [ ] A #task [scheduled:: 2024-01-12] [due:: 2024-01-12] [context:: phone]", "2024-01-14", "2024-01-18"),
+    "- [ ] A #task #\u957F\u4EFB\u52A1 [due:: 2024-01-12] [context:: phone] [start:: 2024-01-14] [scheduled:: 2024-01-18]"
   );
   import_node_assert.strict.equal(
     setTaskEstimate("- [ ] A  B #task [estimate:: 30m] [scheduled:: 2024-01-18]", 75),
@@ -331,7 +343,7 @@ function parseProgressPercent(raw) {
 (0, import_node_test.test)("long task span syncs the long-task tag without duplicating it", () => {
   import_node_assert.strict.equal(
     setTaskSpanDates("- [ ] A #task #keep #\u957F\u4EFB\u52A1 [context:: phone]", "2024-01-14", "2024-01-18"),
-    "- [ ] A #task #keep #\u957F\u4EFB\u52A1 [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
+    "- [ ] A #task #keep #\u957F\u4EFB\u52A1 [context:: phone] [start:: 2024-01-14] [scheduled:: 2024-01-18]"
   );
 });
 (0, import_node_test.test)("estimate and progress writeback preserve unrelated Dataview fields", () => {
@@ -344,22 +356,22 @@ function parseProgressPercent(raw) {
     "- [ ] A #task [context:: phone] [estimate:: 75m] [progress:: 65%]"
   );
 });
-(0, import_node_test.test)("clears all schedule dates while preserving estimate and other metadata", () => {
+(0, import_node_test.test)("clears plugin schedule dates while preserving due and other metadata", () => {
   import_node_assert.strict.equal(
-    clearTaskScheduleDates("- [ ] A #task [due:: 2024-01-10] [start:: 2024-01-11] [scheduled:: 2024-01-12] [estimate:: 75m] \u{1F4C5} 2024-01-09 [context:: phone]"),
-    "- [ ] A #task [estimate:: 75m] [context:: phone]"
+    clearTaskScheduleDates("- [ ] A #task [due:: 2024-01-10] [start:: 2024-01-11] [scheduled:: 2024-01-12] [estimate:: 75m] \u9983\u642E 2024-01-09 [context:: phone]"),
+    "- [ ] A #task [due:: 2024-01-10] [estimate:: 75m] \u9983\u642E 2024-01-09 [context:: phone]"
   );
 });
 (0, import_node_test.test)("clearing schedule removes only the long-task sync tag", () => {
   import_node_assert.strict.equal(
     clearTaskScheduleDates("- [ ] A #task #keep #\u957F\u4EFB\u52A1 [start:: 2024-01-11] [due:: 2024-01-12] [context:: phone]"),
-    "- [ ] A #task #keep [context:: phone]"
+    "- [ ] A #task #keep [due:: 2024-01-12] [context:: phone]"
   );
 });
 (0, import_node_test.test)("clearing schedule preserves priority, progress, estimate, and unrelated Dataview fields", () => {
   import_node_assert.strict.equal(
-    clearTaskScheduleDates("- [ ] Long #task [start:: 2026-06-10] [due:: 2026-06-20] [scheduled:: 2026-06-12] [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk] \u{1F4C5} 2026-06-11"),
-    "- [ ] Long #task [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk]"
+    clearTaskScheduleDates("- [ ] Long #task [start:: 2026-06-10] [due:: 2026-06-20] [scheduled:: 2026-06-12] [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk] \u9983\u642E 2026-06-11"),
+    "- [ ] Long #task [due:: 2026-06-20] [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk] \u9983\u642E 2026-06-11"
   );
 });
 (0, import_node_test.test)("normalizes and writes task priority without disturbing unrelated fields", () => {

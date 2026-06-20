@@ -54,9 +54,9 @@ export function extractTaskMetadata(line: string, readLegacyEmojiDates: boolean)
     }
   }
 
-  const scheduleDate = dates.scheduled ?? dates.due ?? dates.start;
+  const scheduleDate = dates.scheduled;
   const scheduleSource = scheduleDate
-    ? dateSources.scheduled ?? dateSources.due ?? dateSources.start ?? "none"
+    ? dateSources.scheduled ?? "none"
     : "none";
   const plainEstimateMinutes = extractPlainEstimateMinutes(line);
   const estimateMinutes = plainEstimateMinutes ?? firstParsedDuration(metadata.estimate);
@@ -114,19 +114,19 @@ export function setTaskScheduleDate(line: string, scheduledDate: string): string
 
 export function setPointTaskSchedule(line: string, scheduledDate: string, defaultEstimateMinutes: number, createdDate: string): string {
   const parsed = extractTaskMetadata(line, false);
-  let updated = removeFields(line, ["start", "scheduled", "due"]);
+  let updated = removePluginScheduleFields(line);
   if (parsed.plainEstimateMinutes === undefined && parsed.estimateMinutes === undefined) {
     updated = insertPlainEstimate(updated, defaultEstimateMinutes);
   }
   if (!parsed.createdDate) {
     updated = appendField(updated, "created", createdDate);
   }
-  return appendField(appendField(updated, "scheduled", scheduledDate), "due", scheduledDate);
+  return appendField(updated, "scheduled", scheduledDate);
 }
 
 export function setTaskSpanDates(line: string, startDate: string, scheduledDate: string): string {
   const taggedLine = ensureTag(line, LONG_TASK_SYNC_TAG);
-  return appendField(appendField(removeFields(taggedLine, ["start", "scheduled", "due"]), "start", startDate), "due", scheduledDate);
+  return appendField(appendField(removePluginScheduleFields(taggedLine), "start", startDate), "scheduled", scheduledDate);
 }
 
 export function setTaskEstimate(line: string, estimateMinutes: number): string {
@@ -155,13 +155,8 @@ export function setTaskPriority(line: string, priority: string): string {
 }
 
 export function clearTaskScheduleDates(line: string): string {
-  return removeTag(removeFields(line, ["due", "scheduled", "start"]), LONG_TASK_SYNC_TAG)
-    .replace(LEGACY_EMOJI_DATE_RE, " ")
+  return removeTag(removePluginScheduleFields(line), LONG_TASK_SYNC_TAG)
     .replace(/[ \t]+$/u, "");
-}
-
-export function setTaskDueDate(line: string, dueDate: string): string {
-  return appendField(removeFields(line, ["due"]), "due", dueDate);
 }
 
 export function cleanTaskDisplayText(line: string, triggerTags: string[]): string {
@@ -197,6 +192,11 @@ function removeFields(line: string, fields: string[]): string {
     .replace(INLINE_FIELD_RE, (full, rawKey: string) => fieldSet.has(normalizeFieldKey(rawKey)) ? " " : full)
     .replace(/[ \t]+$/u, "")
     .replace(/[ \t]{2,}(?=\[[^\]]+::)/gu, " ");
+}
+
+function removePluginScheduleFields(line: string): string {
+  // The scheduler owns start/scheduled only; user-authored due fields must survive writeback.
+  return removeFields(line, ["start", "scheduled"]);
 }
 
 function appendField(line: string, field: string, value: string): string {
@@ -247,7 +247,7 @@ function isDateField(key: string): key is DateField {
 
 function getRangeEndDate(dates: TaskDateMap): string | undefined {
   if (!dates.start) return undefined;
-  for (const candidate of [dates.due, dates.scheduled]) {
+  for (const candidate of [dates.scheduled]) {
     if (candidate && dates.start < candidate) return candidate;
   }
   return undefined;

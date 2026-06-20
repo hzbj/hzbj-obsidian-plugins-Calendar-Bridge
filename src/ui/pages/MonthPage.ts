@@ -54,7 +54,7 @@ export function renderMonthPage(container: HTMLElement, plugin: PersonalSchedule
 function renderGroupedPool(parent: HTMLElement, plugin: PersonalSchedulerPlugin, model: CalendarViewModel, viewMode: MonthTaskViewMode): void {
   setupUnscheduledDropTarget(parent, plugin);
   const state = getSourceGroupState(plugin);
-  parent.createEl("h2", { text: viewMode === "long" ? "Unscheduled long tasks" : "Unscheduled point tasks" });
+  parent.createEl("h2", { text: "Unscheduled tasks" });
   parent.createEl("button", { cls: "cb-action-button", text: "Rescan" }).addEventListener("click", () => void plugin.rescanTasks());
   renderSortToggle(parent, plugin, state);
 
@@ -69,8 +69,8 @@ function renderGroupedPool(parent: HTMLElement, plugin: PersonalSchedulerPlugin,
 }
 
 function isTaskVisibleInPool(task: CalendarTask, viewMode: MonthTaskViewMode): boolean {
-  if (viewMode === "point") return task.taskKind !== "long";
-  return task.taskKind === "long" || task.triggerType !== "phase-note";
+  // The source list is already restricted to unscheduled tasks; do not hide phase-note tasks by mode.
+  return true;
 }
 
 function renderSortToggle(parent: HTMLElement, plugin: PersonalSchedulerPlugin, state: SourceTaskGroupState): void {
@@ -343,7 +343,7 @@ function renderLongVerticalTask(
   meta.createSpan({ cls: "cb-chip", text: `${shortDate(row.fullStartDate)} - ${shortDate(row.fullEndDate)}` });
   meta.createSpan({ cls: "cb-chip", text: `progress ${row.task.progressPercent ?? 0}%` });
   if (row.clippedStart || row.clippedEnd) meta.createSpan({ cls: "cb-chip cb-chip-info", text: "continues" });
-  if (row.status) meta.createSpan({ cls: "cb-chip", text: row.status });
+  if (row.status) meta.createSpan({ cls: `cb-chip cb-pace-status-${row.status}`, text: row.status });
   renderLongTaskChildren(bar, plugin, row.childTasks);
 }
 

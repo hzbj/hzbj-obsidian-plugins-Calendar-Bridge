@@ -196,8 +196,8 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
       dateSources.due = "emoji";
     }
   }
-  const scheduleDate = dates.scheduled ?? dates.due ?? dates.start;
-  const scheduleSource = scheduleDate ? dateSources.scheduled ?? dateSources.due ?? dateSources.start ?? "none" : "none";
+  const scheduleDate = dates.scheduled;
+  const scheduleSource = scheduleDate ? dateSources.scheduled ?? "none" : "none";
   const plainEstimateMinutes = extractPlainEstimateMinutes(line);
   const estimateMinutes = plainEstimateMinutes ?? firstParsedDuration(metadata.estimate);
   const durationMinutes = firstParsedDuration(metadata.duration);
@@ -245,18 +245,18 @@ function setTaskScheduleDate(line, scheduledDate) {
 }
 function setPointTaskSchedule(line, scheduledDate, defaultEstimateMinutes, createdDate) {
   const parsed = extractTaskMetadata(line, false);
-  let updated = removeFields(line, ["start", "scheduled", "due"]);
+  let updated = removePluginScheduleFields(line);
   if (parsed.plainEstimateMinutes === void 0 && parsed.estimateMinutes === void 0) {
     updated = insertPlainEstimate(updated, defaultEstimateMinutes);
   }
   if (!parsed.createdDate) {
     updated = appendField(updated, "created", createdDate);
   }
-  return appendField(appendField(updated, "scheduled", scheduledDate), "due", scheduledDate);
+  return appendField(updated, "scheduled", scheduledDate);
 }
 function setTaskSpanDates(line, startDate, scheduledDate) {
   const taggedLine = ensureTag(line, LONG_TASK_SYNC_TAG);
-  return appendField(appendField(removeFields(taggedLine, ["start", "scheduled", "due"]), "start", startDate), "due", scheduledDate);
+  return appendField(appendField(removePluginScheduleFields(taggedLine), "start", startDate), "scheduled", scheduledDate);
 }
 function setTaskEstimate(line, estimateMinutes) {
   return appendField(removeFields(line, ["estimate"]), "estimate", `${Math.max(0, Math.round(estimateMinutes))}m`);
@@ -286,10 +286,7 @@ function setTaskPriority(line, priority) {
   return appendField(removeFields(line, ["priority"]), "priority", normalized);
 }
 function clearTaskScheduleDates(line) {
-  return removeTag(removeFields(line, ["due", "scheduled", "start"]), LONG_TASK_SYNC_TAG).replace(LEGACY_EMOJI_DATE_RE, " ").replace(/[ \t]+$/u, "");
-}
-function setTaskDueDate(line, dueDate) {
-  return appendField(removeFields(line, ["due"]), "due", dueDate);
+  return removeTag(removePluginScheduleFields(line), LONG_TASK_SYNC_TAG).replace(/[ \t]+$/u, "");
 }
 function cleanTaskDisplayText(line, triggerTags) {
   const withoutCheckbox = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "");
@@ -309,6 +306,9 @@ function cleanTaskContentText(line) {
 function removeFields(line, fields) {
   const fieldSet = new Set(fields.map(normalizeFieldKey));
   return line.replace(INLINE_FIELD_RE, (full, rawKey) => fieldSet.has(normalizeFieldKey(rawKey)) ? " " : full).replace(/[ \t]+$/u, "").replace(/[ \t]{2,}(?=\[[^\]]+::)/gu, " ");
+}
+function removePluginScheduleFields(line) {
+  return removeFields(line, ["start", "scheduled"]);
 }
 function appendField(line, field, value) {
   return `${line.replace(/[ \t]+$/u, "")} [${field}:: ${value}]`;
@@ -352,7 +352,7 @@ function isDateField(key) {
 function getRangeEndDate(dates) {
   if (!dates.start)
     return void 0;
-  for (const candidate of [dates.due, dates.scheduled]) {
+  for (const candidate of [dates.scheduled]) {
     if (candidate && dates.start < candidate)
       return candidate;
   }
@@ -687,8 +687,6 @@ function activeDatesForTask(task, visibleStart, visibleEnd, mode = "month") {
   return task.scheduleDate ? [task.scheduleDate] : [];
 }
 function getOverdueReason(task, today) {
-  if (task.dates.due && task.dates.due < today)
-    return "due is overdue";
   if (task.dates.scheduled && task.dates.scheduled > "2026-06-12" && task.dates.scheduled < today)
     return "scheduled before today";
   if (isRecurring(task) && task.dates.start && task.dates.start < today)
@@ -946,9 +944,6 @@ var TaskDateWriter = class {
   constructor(app) {
     this.app = app;
   }
-  async setDueDate(file, lineNumber, dueDate) {
-    await this.replaceTaskLine(file, lineNumber, (line) => setTaskDueDate(line, dueDate));
-  }
   async setScheduleDate(file, lineNumber, scheduledDate) {
     await this.replaceTaskLine(file, lineNumber, (line) => setTaskScheduleDate(line, scheduledDate));
   }
@@ -1026,6 +1021,11 @@ var TaskDateWriter = class {
   }
 };
 
+// src/services/TaskPlanningGuards.ts
+function isScheduledPointTask(task) {
+  return task?.taskKind === "point" && Boolean(task.dates.scheduled);
+}
+
 // src/services/TaskScanner.ts
 var CHECKBOX_RE = /^(\s*[-*]\s+\[)([ xX])(\]\s+)(.*)$/u;
 function scanMarkdownTasksFromText(filePath, content, options) {
@@ -1065,7 +1065,7 @@ function scanMarkdownTasksFromText(filePath, content, options) {
       createdDate: metadata.createdDate,
       scheduleDate: metadata.scheduleDate,
       spanStart: taskKind === "long" ? metadata.dates.start : void 0,
-      spanEnd: taskKind === "long" ? metadata.dates.due ?? metadata.dates.scheduled : void 0,
+      spanEnd: taskKind === "long" ? metadata.dates.scheduled : void 0,
       estimateMinutes: metadata.estimateMinutes,
       plainEstimateMinutes: metadata.plainEstimateMinutes,
       progressPercent: metadata.progressPercent,
@@ -1249,7 +1249,7 @@ function renderMonthPage(container, plugin, context) {
 function renderGroupedPool(parent, plugin, model, viewMode) {
   setupUnscheduledDropTarget(parent, plugin);
   const state = getSourceGroupState(plugin);
-  parent.createEl("h2", { text: viewMode === "long" ? "Unscheduled long tasks" : "Unscheduled point tasks" });
+  parent.createEl("h2", { text: "Unscheduled tasks" });
   parent.createEl("button", { cls: "cb-action-button", text: "Rescan" }).addEventListener("click", () => void plugin.rescanTasks());
   renderSortToggle(parent, plugin, state);
   const tasks = model.unifiedUnscheduledTasks.filter((task) => isTaskVisibleInPool(task, viewMode));
@@ -1262,9 +1262,7 @@ function renderGroupedPool(parent, plugin, model, viewMode) {
     renderSourceGroup(parent, plugin, group, viewMode);
 }
 function isTaskVisibleInPool(task, viewMode) {
-  if (viewMode === "point")
-    return task.taskKind !== "long";
-  return task.taskKind === "long" || task.triggerType !== "phase-note";
+  return true;
 }
 function renderSortToggle(parent, plugin, state) {
   const row = parent.createDiv({ cls: "cb-pool-controls" });
@@ -1498,7 +1496,7 @@ function renderLongVerticalTask(parent, plugin, row) {
   if (row.clippedStart || row.clippedEnd)
     meta.createSpan({ cls: "cb-chip cb-chip-info", text: "continues" });
   if (row.status)
-    meta.createSpan({ cls: "cb-chip", text: row.status });
+    meta.createSpan({ cls: `cb-chip cb-pace-status-${row.status}`, text: row.status });
   renderLongTaskChildren(bar, plugin, row.childTasks);
 }
 function renderLongTaskChildren(parent, plugin, childTasks) {
@@ -1885,7 +1883,7 @@ function renderWeekPage(container, plugin, context) {
   );
   const shell = container.createDiv({ cls: "cb-week-shell" });
   const pool = shell.createDiv({ cls: "cb-panel cb-task-pool" });
-  renderPool(pool, plugin, model.unifiedUnscheduledTasks.filter((task) => task.taskKind !== "long"));
+  renderPool(pool, plugin, model.unifiedUnscheduledTasks);
   const week = shell.createDiv({ cls: "cb-panel cb-week" });
   renderToolbar2(week, context, plugin);
   const list = week.createDiv({ cls: "cb-week-day-list" });
@@ -1895,12 +1893,12 @@ function renderWeekPage(container, plugin, context) {
 function renderPool(parent, plugin, unscheduled) {
   setupUnscheduledDropTarget2(parent, plugin);
   const state = getSourceGroupState2(plugin);
-  parent.createEl("h2", { text: "Unscheduled point tasks" });
+  parent.createEl("h2", { text: "Unscheduled tasks" });
   parent.createEl("button", { cls: "cb-action-button", text: "Rescan" }).addEventListener("click", () => void plugin.rescanTasks());
   renderSortToggle2(parent, plugin, state);
   const groups = buildSourceTaskGroups(unscheduled, state);
   if (groups.length === 0) {
-    parent.createDiv({ cls: "cb-empty", text: "No unscheduled point tasks." });
+    parent.createDiv({ cls: "cb-empty", text: "No unscheduled tasks." });
     return;
   }
   for (const group of groups)
@@ -2348,7 +2346,7 @@ var PersonalSchedulerPlugin = class extends Plugin {
     if (!target)
       return;
     const task = this.calendarTasks.find((item) => item.id === taskId);
-    if (task?.dates.scheduled) {
+    if (isScheduledPointTask(task)) {
       new Notice("Scheduled point tasks cannot be planned as long tasks.");
       return;
     }

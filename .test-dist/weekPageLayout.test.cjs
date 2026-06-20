@@ -5,6 +5,10 @@ var import_node_test = require("node:test");
 (0, import_node_test.test)("renders week unscheduled pool with source grouping, sorting, and priority display", () => {
   const source = (0, import_node_fs.readFileSync)("src/ui/pages/WeekPage.ts", "utf8");
   import_node_assert.strict.match(source, /buildSourceTaskGroups/);
+  import_node_assert.strict.match(source, /renderPool\(pool, plugin, model\.unifiedUnscheduledTasks\)/);
+  import_node_assert.strict.doesNotMatch(source, /unifiedUnscheduledTasks\.filter\(\(task\) => task\.taskKind !== "long"\)/);
+  import_node_assert.strict.match(source, /text: "Unscheduled tasks"/);
+  import_node_assert.strict.match(source, /text: "No unscheduled tasks\."/);
   import_node_assert.strict.match(source, /function renderSourceGroup/);
   import_node_assert.strict.match(source, /function renderSortToggle/);
   import_node_assert.strict.match(source, /cb-priority-chip/);

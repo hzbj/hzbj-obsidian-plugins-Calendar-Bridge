@@ -50,7 +50,7 @@ export function scanMarkdownTasksFromText(filePath: string, content: string, opt
       createdDate: metadata.createdDate,
       scheduleDate: metadata.scheduleDate,
       spanStart: taskKind === "long" ? metadata.dates.start : undefined,
-      spanEnd: taskKind === "long" ? metadata.dates.due ?? metadata.dates.scheduled : undefined,
+      spanEnd: taskKind === "long" ? metadata.dates.scheduled : undefined,
       estimateMinutes: metadata.estimateMinutes,
       plainEstimateMinutes: metadata.plainEstimateMinutes,
       progressPercent: metadata.progressPercent,

@@ -368,8 +368,6 @@ function activeDatesForTask(task2, visibleStart, visibleEnd, mode = "month") {
   return task2.scheduleDate ? [task2.scheduleDate] : [];
 }
 function getOverdueReason(task2, today) {
-  if (task2.dates.due && task2.dates.due < today)
-    return "due is overdue";
   if (task2.dates.scheduled && task2.dates.scheduled > "2026-06-12" && task2.dates.scheduled < today)
     return "scheduled before today";
   if (isRecurring(task2) && task2.dates.start && task2.dates.start < today)
@@ -418,7 +416,7 @@ var tasks = [
   task("b", "Monday", { scheduled: "2024-01-15" }, { estimateMinutes: 45 }),
   task("c", "Span", { start: "2024-01-16", scheduled: "2024-01-18" }, { estimateMinutes: 90 }),
   task("d", "Done", { scheduled: "2024-01-15" }, { completed: true, estimateMinutes: 60 }),
-  task("e", "Due fallback", { due: "2024-01-17" }),
+  task("e", "Due-only unscheduled", { due: "2024-01-17" }),
   task("f", "Inbox path", {}, { filePath: "\u6536\u96C6/\u4EE3\u529E/Inbox.md" }),
   task("g", "Recurring unscheduled", {}, { recurrence: "every week" }),
   task("h", "Recurring overdue", { start: "2024-01-10" }, { recurrence: "every week" }),
@@ -437,7 +435,7 @@ var reviewPressure = {
   import_node_assert.strict.equal(model.dayLoads["2024-01-15"].taskMinutes, 105);
   import_node_assert.strict.equal(model.dayLoads["2024-01-15"].reviewMinutes, 11);
   import_node_assert.strict.equal(model.dayLoads["2024-01-15"].heatScore, 116);
-  import_node_assert.strict.equal(model.dayLoads["2024-01-17"].taskMinutes, 120);
+  import_node_assert.strict.equal(model.dayLoads["2024-01-17"].taskMinutes, 90);
 });
 (0, import_node_test.test)("keeps completed point task pressure as month history", () => {
   const model = buildMonthViewModel("2024-01-16", tasks, 1, reviewPressure, 30);
@@ -475,8 +473,8 @@ var reviewPressure = {
   ]);
   import_node_assert.strict.equal(model.weekDayRows.length, 7);
   import_node_assert.strict.deepEqual(model.weekDayRows[0].tasks.map((item) => item.id), ["b"]);
-  import_node_assert.strict.deepEqual(model.weekDayRows[2].tasks.map((item) => item.id), ["e"]);
-  import_node_assert.strict.deepEqual(model.weekDayRows.flatMap((row) => row.tasks).map((item) => item.id), ["b", "e"]);
+  import_node_assert.strict.deepEqual(model.weekDayRows[2].tasks.map((item) => item.id), []);
+  import_node_assert.strict.deepEqual(model.weekDayRows.flatMap((row) => row.tasks).map((item) => item.id), ["b"]);
   import_node_assert.strict.equal(model.weekDayRows[0].review.count, 2);
   import_node_assert.strict.equal(model.dayLoads["2024-01-18"].reviewMinutes, 4);
   import_node_assert.strict.equal(model.dayLoads["2024-01-18"].taskMinutes, 0);
@@ -492,7 +490,7 @@ var reviewPressure = {
 });
 (0, import_node_test.test)("keeps long tasks out of point task pressure and builds long task progress lists", () => {
   const longTasks = [
-    task("l1", "Scheduled long", { start: "2026-06-10", due: "2026-06-20" }, {
+    task("l1", "Scheduled long", { start: "2026-06-10", scheduled: "2026-06-20" }, {
       taskKind: "long",
       progressPercent: 25,
       estimateMinutes: 600
@@ -501,7 +499,7 @@ var reviewPressure = {
       taskKind: "long",
       progressPercent: 0
     }),
-    task("l3", "Overdue long", { start: "2026-06-01", due: "2026-06-16" }, {
+    task("l3", "Overdue long", { start: "2026-06-01", scheduled: "2026-06-16" }, {
       taskKind: "long",
       progressPercent: 80
     }),
@@ -518,6 +516,20 @@ var reviewPressure = {
   import_node_assert.strict.equal(model.longTaskProgress[0].dailyEstimatedMinutes, 150);
   import_node_assert.strict.equal(model.longTaskProgress[0].status, "behind");
 });
+(0, import_node_test.test)("uses the real current date for long-task pace while browsing a future month", () => {
+  const today = todayString();
+  const start = addDays(today, 10);
+  const end = addDays(today, 40);
+  const futureMonthAnchor = addDays(today, 25);
+  const model = buildMonthViewModel(futureMonthAnchor, [
+    task("future", "Future long", { start, scheduled: end }, {
+      taskKind: "long",
+      progressPercent: 0
+    })
+  ], 1, {}, 30);
+  import_node_assert.strict.equal(model.longTaskTimelineRows[0].status, "on-track");
+  import_node_assert.strict.equal(model.longTaskProgress[0].status, "on-track");
+});
 (0, import_node_test.test)("builds one unified unscheduled pool for point and long task modes", () => {
   const mixedTasks = [
     task("u1", "Plain unscheduled"),
@@ -525,8 +537,8 @@ var reviewPressure = {
     task("u3", "Partial long candidate", { start: "2026-06-20" }, { taskKind: "long" }),
     task("u4", "Repeating candidate", {}, { recurrence: "every week" }),
     task("p1", "Scheduled point", { scheduled: "2026-06-17", due: "2026-06-17" }),
-    task("l1", "Ranged long candidate", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
-    task("l2", "Scheduled long", { start: "2026-06-10", due: "2026-06-20", scheduled: "2026-06-10" }, { taskKind: "long" }),
+    task("l1", "Ranged long candidate", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
+    task("l2", "Scheduled long", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
     task("d1", "Done unscheduled", {}, { completed: true })
   ];
   const model = buildMonthViewModel("2026-06-17", mixedTasks, 1, {}, 30);
@@ -538,9 +550,9 @@ var reviewPressure = {
 });
 (0, import_node_test.test)("builds current-month long task timeline rows including overdue and clipped cross-month ranges", () => {
   const longTasks = [
-    task("l1", "Cross month", { start: "2026-05-28", due: "2026-06-04" }, { taskKind: "long" }),
-    task("l2", "Inside month", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
-    task("l3", "Overdue long", { start: "2026-06-01", due: "2026-06-16" }, { taskKind: "long", progressPercent: 80 }),
+    task("l1", "Cross month", { start: "2026-05-28", scheduled: "2026-06-04" }, { taskKind: "long" }),
+    task("l2", "Inside month", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
+    task("l3", "Overdue long", { start: "2026-06-01", scheduled: "2026-06-16" }, { taskKind: "long", progressPercent: 80 }),
     task("p1", "Point", { scheduled: "2026-06-12" })
   ];
   const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
@@ -559,10 +571,10 @@ var reviewPressure = {
 });
 (0, import_node_test.test)("attaches active indented child tasks to their parent long task timeline row", () => {
   const longTasks = [
-    task("l1", "Parent long", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
+    task("l1", "Parent long", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
     task("p1", "Unscheduled child", {}, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("p2", "Scheduled child", { scheduled: "2026-06-12" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
-    task("l2", "Child long", { start: "2026-06-13", due: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("l2", "Child long", { start: "2026-06-13", scheduled: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("d1", "Done child", {}, { completed: true, parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("p3", "Other child", {}, { parentLongTaskId: "missing", parentLongTaskText: "Missing" })
   ];
@@ -575,9 +587,9 @@ var reviewPressure = {
 });
 (0, import_node_test.test)("sorts parent long task children by scheduled time with unscheduled children last", () => {
   const longTasks = [
-    task("l1", "Parent long", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
+    task("l1", "Parent long", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
     task("u1", "Unscheduled child", {}, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
-    task("l2", "Later child long", { start: "2026-06-13", due: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("l2", "Later child long", { start: "2026-06-13", scheduled: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("p1", "Earlier point child", { scheduled: "2026-06-11" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("p2", "Middle point child", { scheduled: "2026-06-12" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" })
   ];
@@ -587,9 +599,9 @@ var reviewPressure = {
 });
 (0, import_node_test.test)("assigns overlapping long task bars to independent layout rows", () => {
   const longTasks = [
-    task("l1", "Long A", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
-    task("l2", "Long B", { start: "2026-06-12", due: "2026-06-18" }, { taskKind: "long" }),
-    task("l3", "Long C", { start: "2026-06-21", due: "2026-06-24" }, { taskKind: "long" })
+    task("l1", "Long A", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
+    task("l2", "Long B", { start: "2026-06-12", scheduled: "2026-06-18" }, { taskKind: "long" }),
+    task("l3", "Long C", { start: "2026-06-21", scheduled: "2026-06-24" }, { taskKind: "long" })
   ];
   const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
   const longBars = model.spanBars.filter((bar) => bar.task.taskKind === "long");
@@ -640,10 +652,10 @@ var reviewPressure = {
   ]);
 });
 function task(id, text, dates = {}, options = {}) {
-  const scheduleDate = dates.scheduled ?? dates.due ?? dates.start;
+  const scheduleDate = dates.scheduled;
   const isLong = options.taskKind === "long";
   const spanStart = isLong ? dates.start : dates.start && dates.scheduled && dates.start < dates.scheduled ? dates.start : void 0;
-  const spanEnd = isLong ? dates.due : spanStart ? dates.scheduled : void 0;
+  const spanEnd = isLong ? dates.scheduled : spanStart ? dates.scheduled : void 0;
   return {
     id,
     text,

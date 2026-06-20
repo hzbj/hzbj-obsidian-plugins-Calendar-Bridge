@@ -4,6 +4,7 @@ import type { CalendarBridgeData, CalendarTask, ReviewPressureByDate } from "./m
 import { AI_SCHEDULE_CONTEXT_PATH, AiScheduleContextExporter } from "./services/AiScheduleContext";
 import { ReviewPressureScanner } from "./services/ReviewPressure";
 import { TaskDateWriter } from "./services/TaskDateWriter";
+import { isScheduledPointTask } from "./services/TaskPlanningGuards";
 import { TaskScanner } from "./services/TaskScanner";
 import { PersonalSystemView } from "./ui/PersonalSystemView";
 import { PersonalSystemSettingTab } from "./ui/settings/PersonalSystemSettingTab";
@@ -150,7 +151,7 @@ export default class PersonalSchedulerPlugin extends Plugin {
     const target = this.resolveTaskRef(taskId);
     if (!target) return;
     const task = this.calendarTasks.find((item) => item.id === taskId);
-    if (task?.dates.scheduled) {
+    if (isScheduledPointTask(task)) {
       new Notice("Scheduled point tasks cannot be planned as long tasks.");
       return;
     }

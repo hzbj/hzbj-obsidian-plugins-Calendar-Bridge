@@ -35,7 +35,7 @@ test("parses arbitrary Dataview inline fields and normalized task metadata", () 
 
 test("parses plain estimate, created date, and manual progress fields", () => {
   const parsed = extractTaskMetadata(
-    "- [ ] 个人毕业照打包发送 1h #task [created:: 2026-06-17] [scheduled:: 2026-06-17] [due:: 2026-06-17] [progress:: 40%]",
+    "- [ ] Send graduation photos 1h #task [created:: 2026-06-17] [scheduled:: 2026-06-17] [due:: 2026-06-17] [progress:: 40%]",
     true
   );
   assert.equal(parsed.plainEstimateMinutes, 60);
@@ -47,18 +47,29 @@ test("parses plain estimate, created date, and manual progress fields", () => {
 });
 
 test("parses legacy emoji date when compatibility is enabled", () => {
-  const parsed = extractTaskMetadata("- [ ] Task #task 📅 2024-01-14", true);
+  const parsed = extractTaskMetadata("- [ ] Task #task 馃搮 2024-01-14", true);
   assert.equal(parsed.dates.due, "2024-01-14");
-  assert.equal(parsed.scheduleDate, "2024-01-14");
-  assert.equal(parsed.dateSource, "emoji");
+  assert.equal(parsed.scheduleDate, undefined);
+  assert.equal(parsed.dateSource, "none");
 });
 
 test("prefers Dataview scheduled over due and legacy emoji dates", () => {
-  const parsed = extractTaskMetadata("- [ ] Task #task [due:: 2024-01-14] [scheduled:: 2024-01-16] 📅 2024-01-15", true);
+  const parsed = extractTaskMetadata("- [ ] Task #task [due:: 2024-01-14] [scheduled:: 2024-01-16] 馃搮 2024-01-15", true);
   assert.equal(parsed.dates.due, "2024-01-14");
   assert.equal(parsed.dates.scheduled, "2024-01-16");
   assert.equal(parsed.scheduleDate, "2024-01-16");
   assert.equal(parsed.dateSource, "dataview");
+});
+
+test("does not treat due as a point schedule or long-task range end", () => {
+  const point = extractTaskMetadata("- [ ] Point #task [due:: 2024-01-14]", true);
+  const long = extractTaskMetadata("- [ ] Long #task [start:: 2024-01-13] [due:: 2024-01-14]", true);
+
+  assert.equal(point.dates.due, "2024-01-14");
+  assert.equal(point.scheduleDate, undefined);
+  assert.equal(point.dateSource, "none");
+  assert.equal(long.spanStart, undefined);
+  assert.equal(long.spanEnd, undefined);
 });
 
 test("parses common estimate formats", () => {
@@ -74,27 +85,27 @@ test("parses common estimate formats", () => {
 
 test("writes scheduled date without disturbing task content", () => {
   assert.equal(
-    setTaskScheduleDate("- [ ] Check NAS #task ⏰ 21:00 [priority:: high]", "2024-01-14"),
-    "- [ ] Check NAS #task ⏰ 21:00 [priority:: high] [scheduled:: 2024-01-14]"
+    setTaskScheduleDate("- [ ] Check NAS #task 鈴?21:00 [priority:: high]", "2024-01-14"),
+    "- [ ] Check NAS #task 鈴?21:00 [priority:: high] [scheduled:: 2024-01-14]"
   );
 });
 
-test("writes point task schedule with plain estimate, created, scheduled, and due fields", () => {
+test("writes point task schedule with plain estimate, created, and scheduled fields", () => {
   assert.equal(
-    setPointTaskSchedule("- [ ] 个人毕业照打包发送 #task [priority:: high]", "2026-06-17", 60, "2026-06-17"),
-    "- [ ] 个人毕业照打包发送 #task 1h [priority:: high] [created:: 2026-06-17] [scheduled:: 2026-06-17] [due:: 2026-06-17]"
+    setPointTaskSchedule("- [ ] Send graduation photos #task [priority:: high]", "2026-06-17", 60, "2026-06-17"),
+    "- [ ] Send graduation photos #task 1h [priority:: high] [created:: 2026-06-17] [scheduled:: 2026-06-17]"
   );
 });
 
 test("point task schedule preserves existing created and estimate values", () => {
   assert.equal(
     setPointTaskSchedule(
-      "- [ ] 个人毕业照打包发送 45m #task [created:: 2026-06-10] [scheduled:: 2026-06-12] [due:: 2026-06-12] [context:: phone]",
+      "- [ ] Send graduation photos 45m #task [created:: 2026-06-10] [scheduled:: 2026-06-12] [due:: 2026-06-12] [context:: phone]",
       "2026-06-17",
       60,
       "2026-06-17"
     ),
-    "- [ ] 个人毕业照打包发送 45m #task [created:: 2026-06-10] [context:: phone] [scheduled:: 2026-06-17] [due:: 2026-06-17]"
+    "- [ ] Send graduation photos 45m #task [created:: 2026-06-10] [due:: 2026-06-12] [context:: phone] [scheduled:: 2026-06-17]"
   );
 });
 
@@ -106,24 +117,24 @@ test("point task schedule clears stale start field and writes only point date fi
     "2026-06-17"
   );
 
-  assert.equal(updated, "- [ ] Point #task 30m [context:: desk] [created:: 2026-06-17] [scheduled:: 2026-06-17] [due:: 2026-06-17]");
+  assert.equal(updated, "- [ ] Point #task 30m [due:: 2026-06-12] [context:: desk] [created:: 2026-06-17] [scheduled:: 2026-06-17]");
 });
 
 test("replaces existing scheduled date while preserving other metadata", () => {
   assert.equal(
-    setTaskScheduleDate("\t- [ ] Check NAS #task [scheduled:: 2024-01-13] [due:: 2024-01-12] ⏰ 21:00", "2024-01-14"),
-    "\t- [ ] Check NAS #task [due:: 2024-01-12] ⏰ 21:00 [scheduled:: 2024-01-14]"
+    setTaskScheduleDate("\t- [ ] Check NAS #task [scheduled:: 2024-01-13] [due:: 2024-01-12] 鈴?21:00", "2024-01-14"),
+    "\t- [ ] Check NAS #task [due:: 2024-01-12] 鈴?21:00 [scheduled:: 2024-01-14]"
   );
 });
 
 test("writes span dates and estimate without removing other fields", () => {
   assert.equal(
     setTaskSpanDates("- [ ] A  B #task [start:: 2024-01-10] [estimate:: 30m] [context:: phone]", "2024-01-14", "2024-01-18"),
-    "- [ ] A  B #task #长任务 [estimate:: 30m] [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
+    "- [ ] A  B #task #长任务 [estimate:: 30m] [context:: phone] [start:: 2024-01-14] [scheduled:: 2024-01-18]"
   );
   assert.equal(
-    setTaskSpanDates("- [ ] A #task [scheduled:: 2024-01-12] [context:: phone]", "2024-01-14", "2024-01-18"),
-    "- [ ] A #task #长任务 [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
+    setTaskSpanDates("- [ ] A #task [scheduled:: 2024-01-12] [due:: 2024-01-12] [context:: phone]", "2024-01-14", "2024-01-18"),
+    "- [ ] A #task #长任务 [due:: 2024-01-12] [context:: phone] [start:: 2024-01-14] [scheduled:: 2024-01-18]"
   );
   assert.equal(
     setTaskEstimate("- [ ] A  B #task [estimate:: 30m] [scheduled:: 2024-01-18]", 75),
@@ -134,7 +145,7 @@ test("writes span dates and estimate without removing other fields", () => {
 test("long task span syncs the long-task tag without duplicating it", () => {
   assert.equal(
     setTaskSpanDates("- [ ] A #task #keep #长任务 [context:: phone]", "2024-01-14", "2024-01-18"),
-    "- [ ] A #task #keep #长任务 [context:: phone] [start:: 2024-01-14] [due:: 2024-01-18]"
+    "- [ ] A #task #keep #长任务 [context:: phone] [start:: 2024-01-14] [scheduled:: 2024-01-18]"
   );
 });
 
@@ -149,24 +160,24 @@ test("estimate and progress writeback preserve unrelated Dataview fields", () =>
   );
 });
 
-test("clears all schedule dates while preserving estimate and other metadata", () => {
+test("clears plugin schedule dates while preserving due and other metadata", () => {
   assert.equal(
-    clearTaskScheduleDates("- [ ] A #task [due:: 2024-01-10] [start:: 2024-01-11] [scheduled:: 2024-01-12] [estimate:: 75m] 📅 2024-01-09 [context:: phone]"),
-    "- [ ] A #task [estimate:: 75m] [context:: phone]"
+    clearTaskScheduleDates("- [ ] A #task [due:: 2024-01-10] [start:: 2024-01-11] [scheduled:: 2024-01-12] [estimate:: 75m] 馃搮 2024-01-09 [context:: phone]"),
+    "- [ ] A #task [due:: 2024-01-10] [estimate:: 75m] 馃搮 2024-01-09 [context:: phone]"
   );
 });
 
 test("clearing schedule removes only the long-task sync tag", () => {
   assert.equal(
     clearTaskScheduleDates("- [ ] A #task #keep #长任务 [start:: 2024-01-11] [due:: 2024-01-12] [context:: phone]"),
-    "- [ ] A #task #keep [context:: phone]"
+    "- [ ] A #task #keep [due:: 2024-01-12] [context:: phone]"
   );
 });
 
 test("clearing schedule preserves priority, progress, estimate, and unrelated Dataview fields", () => {
   assert.equal(
-    clearTaskScheduleDates("- [ ] Long #task [start:: 2026-06-10] [due:: 2026-06-20] [scheduled:: 2026-06-12] [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk] 📅 2026-06-11"),
-    "- [ ] Long #task [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk]"
+    clearTaskScheduleDates("- [ ] Long #task [start:: 2026-06-10] [due:: 2026-06-20] [scheduled:: 2026-06-12] [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk] 馃搮 2026-06-11"),
+    "- [ ] Long #task [due:: 2026-06-20] [priority:: P1] [progress:: 40%] [estimate:: 90m] [context:: desk] 馃搮 2026-06-11"
   );
 });
 

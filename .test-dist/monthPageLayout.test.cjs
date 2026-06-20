@@ -42,10 +42,14 @@ var import_node_test = require("node:test");
   import_node_assert.strict.match(source, /cb-long-past-toggle/);
   import_node_assert.strict.match(source, /day\.isFoldedPast/);
 });
-(0, import_node_test.test)("lets long-task month pool include ordinary unscheduled candidates but not phase child tasks", () => {
+(0, import_node_test.test)("lets long-task month pool include every unscheduled candidate", () => {
   const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
   import_node_assert.strict.match(source, /function isTaskVisibleInPool/);
-  import_node_assert.strict.match(source, /task\.taskKind === "long" \|\| task\.triggerType !== "phase-note"/);
+  import_node_assert.strict.match(source, /text: "Unscheduled tasks"/);
+  import_node_assert.strict.doesNotMatch(source, /Unscheduled long tasks/);
+  import_node_assert.strict.doesNotMatch(source, /Unscheduled point tasks/);
+  import_node_assert.strict.match(source, /return true/);
+  import_node_assert.strict.doesNotMatch(source, /triggerType !== "phase-note"/);
 });
 (0, import_node_test.test)("renders parent long-task labels in point pools and child tasks inside long-task bars", () => {
   const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");

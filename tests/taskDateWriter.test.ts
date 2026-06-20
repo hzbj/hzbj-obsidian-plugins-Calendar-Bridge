@@ -29,6 +29,6 @@ test("moves a point task line into daily file content with scheduled fields", ()
   assert.equal(moved.sourceContent, "# Inbox\n- [ ] First #task\n- [ ] Last #task\n");
   assert.equal(
     moved.targetContent,
-    "# 20260618日\n- [ ] Move me #task 30m [context:: phone] [created:: 2026-06-18] [scheduled:: 2026-06-18] [due:: 2026-06-18]\n"
+    "# 20260618日\n- [ ] Move me #task 30m [context:: phone] [created:: 2026-06-18] [scheduled:: 2026-06-18]\n"
   );
 });

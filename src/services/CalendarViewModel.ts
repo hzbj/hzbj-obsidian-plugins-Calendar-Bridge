@@ -353,7 +353,6 @@ function activeDatesForTask(task: CalendarTask, visibleStart?: string, visibleEn
 }
 
 function getOverdueReason(task: CalendarTask, today: string): string | undefined {
-  if (task.dates.due && task.dates.due < today) return "due is overdue";
   if (task.dates.scheduled && task.dates.scheduled > "2026-06-12" && task.dates.scheduled < today) return "scheduled before today";
   if (isRecurring(task) && task.dates.start && task.dates.start < today) return "recurring start before today";
   return undefined;

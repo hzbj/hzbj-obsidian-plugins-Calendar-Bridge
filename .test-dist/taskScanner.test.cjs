@@ -30,8 +30,8 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
       dateSources.due = "emoji";
     }
   }
-  const scheduleDate = dates.scheduled ?? dates.due ?? dates.start;
-  const scheduleSource = scheduleDate ? dateSources.scheduled ?? dateSources.due ?? dateSources.start ?? "none" : "none";
+  const scheduleDate = dates.scheduled;
+  const scheduleSource = scheduleDate ? dateSources.scheduled ?? "none" : "none";
   const plainEstimateMinutes = extractPlainEstimateMinutes(line);
   const estimateMinutes = plainEstimateMinutes ?? firstParsedDuration(metadata.estimate);
   const durationMinutes = firstParsedDuration(metadata.duration);
@@ -93,7 +93,7 @@ function isDateField(key) {
 function getRangeEndDate(dates) {
   if (!dates.start)
     return void 0;
-  for (const candidate of [dates.due, dates.scheduled]) {
+  for (const candidate of [dates.scheduled]) {
     if (candidate && dates.start < candidate)
       return candidate;
   }
@@ -172,7 +172,7 @@ function scanMarkdownTasksFromText(filePath, content, options) {
       createdDate: metadata.createdDate,
       scheduleDate: metadata.scheduleDate,
       spanStart: taskKind === "long" ? metadata.dates.start : void 0,
-      spanEnd: taskKind === "long" ? metadata.dates.due ?? metadata.dates.scheduled : void 0,
+      spanEnd: taskKind === "long" ? metadata.dates.scheduled : void 0,
       estimateMinutes: metadata.estimateMinutes,
       plainEstimateMinutes: metadata.plainEstimateMinutes,
       progressPercent: metadata.progressPercent,
@@ -243,7 +243,7 @@ function matchesPathPrefix(filePath, prefix) {
   const tasks = scanMarkdownTasksFromText(
     "Tasks.md",
     [
-      "- [ ] Long task #task [start:: 2026-06-10] [due:: 2026-06-20] [progress:: 25%]",
+      "- [ ] Long task #task [start:: 2026-06-10] [scheduled:: 2026-06-20] [progress:: 25%]",
       "- [ ] Started without end #task [start:: 2026-06-12]",
       "- [ ] Due-only point #task [due:: 2026-06-20]",
       "- [ ] Scheduled point #task [scheduled:: 2026-06-17]",
@@ -360,13 +360,13 @@ function matchesPathPrefix(filePath, prefix) {
 (0, import_node_test.test)("auto-detects existing long task ranges without trigger tags", () => {
   const tasks = scanMarkdownTasksFromText(
     "\u89C4\u5212/\u9636\u6BB5/\u817E\u8BAF\u521B\u4F5C\u5927\u8D5B.md",
-    "- [ ] Character design 30m [start:: 2026-06-10] [due:: 2026-06-19]\n- [ ] Same-day started task [start:: 2026-06-17] [due:: 2026-06-17]\n- [ ] Legacy span end [start:: 2026-06-20] [scheduled:: 2026-06-25]\n",
+    "- [ ] Character design 30m [start:: 2026-06-10] [scheduled:: 2026-06-19]\n- [ ] Same-day started task [start:: 2026-06-17] [scheduled:: 2026-06-17]\n- [ ] Due no longer ends a span [start:: 2026-06-20] [due:: 2026-06-25]\n",
     { triggerTags: ["task"], readLegacyEmojiDates: true, forceExtract: false }
   );
-  import_node_assert.strict.deepEqual(tasks.map((item) => item.text), ["Character design", "Same-day started task", "Legacy span end"]);
+  import_node_assert.strict.deepEqual(tasks.map((item) => item.text), ["Character design", "Same-day started task", "Due no longer ends a span"]);
   import_node_assert.strict.deepEqual(tasks.map((item) => item.taskKind), ["long", "long", "long"]);
   import_node_assert.strict.deepEqual(tasks.map((item) => item.spanStart), ["2026-06-10", "2026-06-17", "2026-06-20"]);
-  import_node_assert.strict.deepEqual(tasks.map((item) => item.spanEnd), ["2026-06-19", "2026-06-17", "2026-06-25"]);
+  import_node_assert.strict.deepEqual(tasks.map((item) => item.spanEnd), ["2026-06-19", "2026-06-17", void 0]);
 });
 (0, import_node_test.test)("ignores configured excluded path prefixes", () => {
   const tasks = scanMarkdownTasksFromText(

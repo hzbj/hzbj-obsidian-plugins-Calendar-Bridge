@@ -6,6 +6,10 @@ test("renders week unscheduled pool with source grouping, sorting, and priority 
   const source = readFileSync("src/ui/pages/WeekPage.ts", "utf8");
 
   assert.match(source, /buildSourceTaskGroups/);
+  assert.match(source, /renderPool\(pool, plugin, model\.unifiedUnscheduledTasks\)/);
+  assert.doesNotMatch(source, /unifiedUnscheduledTasks\.filter\(\(task\) => task\.taskKind !== "long"\)/);
+  assert.match(source, /text: "Unscheduled tasks"/);
+  assert.match(source, /text: "No unscheduled tasks\."/);
   assert.match(source, /function renderSourceGroup/);
   assert.match(source, /function renderSortToggle/);
   assert.match(source, /cb-priority-chip/);

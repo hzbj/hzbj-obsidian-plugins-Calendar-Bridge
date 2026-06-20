@@ -345,8 +345,6 @@ function activeDatesForTask(task2, visibleStart, visibleEnd, mode = "month") {
   return task2.scheduleDate ? [task2.scheduleDate] : [];
 }
 function getOverdueReason(task2, today) {
-  if (task2.dates.due && task2.dates.due < today)
-    return "due is overdue";
   if (task2.dates.scheduled && task2.dates.scheduled > "2026-06-12" && task2.dates.scheduled < today)
     return "scheduled before today";
   if (isRecurring(task2) && task2.dates.start && task2.dates.start < today)
@@ -527,8 +525,8 @@ var settings = {
     tasks: [
       task("u1", "Loose", {}, { priority: "P1" }),
       task("s1", "Scheduled", { scheduled: "2026-06-18" }, { estimateMinutes: 45, priority: "high" }),
-      task("o1", "Overdue", { due: "2026-06-17" }, { priority: "low" }),
-      task("l1", "Long", { start: "2026-06-10", due: "2026-06-22" }, { taskKind: "long", estimateMinutes: 600, progressPercent: 25 })
+      task("o1", "Overdue", { scheduled: "2026-06-17" }, { priority: "low" }),
+      task("l1", "Long", { start: "2026-06-10", scheduled: "2026-06-22" }, { taskKind: "long", estimateMinutes: 600, progressPercent: 25 })
     ],
     reviewPressure,
     settings
@@ -544,8 +542,7 @@ var settings = {
     totalMinutes: 57
   });
   import_node_assert.strict.deepEqual(context.unscheduledTasks.map((item) => ({ id: item.id, priority: item.priority, priorityRank: item.priorityRank })), [
-    { id: "u1", priority: "highest", priorityRank: 1 },
-    { id: "o1", priority: "low", priorityRank: 4 }
+    { id: "u1", priority: "highest", priorityRank: 1 }
   ]);
   import_node_assert.strict.deepEqual(context.overdueTasks.map((item) => item.id), ["o1"]);
   import_node_assert.strict.deepEqual(context.longTaskProgress.map((item) => ({
@@ -569,7 +566,7 @@ var settings = {
   import_node_assert.strict.equal(fakeApp.modifiedFiles.length, 1);
 });
 function task(id, text, dates = {}, options = {}) {
-  const scheduleDate = dates.scheduled ?? dates.due ?? dates.start;
+  const scheduleDate = dates.scheduled;
   const isLong = options.taskKind === "long";
   return {
     id,
@@ -587,7 +584,7 @@ function task(id, text, dates = {}, options = {}) {
     progressPercent: options.progressPercent ?? 0,
     scheduleDate,
     spanStart: isLong ? dates.start : void 0,
-    spanEnd: isLong ? dates.due : void 0,
+    spanEnd: isLong ? dates.scheduled : void 0,
     dueDate: dates.due,
     dateSource: scheduleDate ? "dataview" : "none",
     triggerType: "inline",

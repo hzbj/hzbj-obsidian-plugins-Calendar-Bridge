@@ -2,7 +2,6 @@ import type { App, TFile } from "obsidian";
 import {
   clearTaskScheduleDates,
   setPointTaskSchedule,
-  setTaskDueDate,
   setTaskEstimate,
   setTaskPriority,
   setTaskProgress,
@@ -45,10 +44,6 @@ export function moveTaskLineToScheduledDayContent(input: MoveTaskLineInput): Mov
 
 export class TaskDateWriter {
   constructor(private readonly app: App) {}
-
-  async setDueDate(file: TFile, lineNumber: number, dueDate: string): Promise<void> {
-    await this.replaceTaskLine(file, lineNumber, (line) => setTaskDueDate(line, dueDate));
-  }
 
   async setScheduleDate(file: TFile, lineNumber: number, scheduledDate: string): Promise<void> {
     await this.replaceTaskLine(file, lineNumber, (line) => setTaskScheduleDate(line, scheduledDate));

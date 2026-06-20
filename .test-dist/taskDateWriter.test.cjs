@@ -29,8 +29,8 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
       dateSources.due = "emoji";
     }
   }
-  const scheduleDate = dates.scheduled ?? dates.due ?? dates.start;
-  const scheduleSource = scheduleDate ? dateSources.scheduled ?? dateSources.due ?? dateSources.start ?? "none" : "none";
+  const scheduleDate = dates.scheduled;
+  const scheduleSource = scheduleDate ? dateSources.scheduled ?? "none" : "none";
   const plainEstimateMinutes = extractPlainEstimateMinutes(line);
   const estimateMinutes = plainEstimateMinutes ?? firstParsedDuration(metadata.estimate);
   const durationMinutes = firstParsedDuration(metadata.duration);
@@ -75,18 +75,21 @@ function parseDurationToMinutes(raw) {
 }
 function setPointTaskSchedule(line, scheduledDate, defaultEstimateMinutes, createdDate) {
   const parsed = extractTaskMetadata(line, false);
-  let updated = removeFields(line, ["start", "scheduled", "due"]);
+  let updated = removePluginScheduleFields(line);
   if (parsed.plainEstimateMinutes === void 0 && parsed.estimateMinutes === void 0) {
     updated = insertPlainEstimate(updated, defaultEstimateMinutes);
   }
   if (!parsed.createdDate) {
     updated = appendField(updated, "created", createdDate);
   }
-  return appendField(appendField(updated, "scheduled", scheduledDate), "due", scheduledDate);
+  return appendField(updated, "scheduled", scheduledDate);
 }
 function removeFields(line, fields) {
   const fieldSet = new Set(fields.map(normalizeFieldKey));
   return line.replace(INLINE_FIELD_RE, (full, rawKey) => fieldSet.has(normalizeFieldKey(rawKey)) ? " " : full).replace(/[ \t]+$/u, "").replace(/[ \t]{2,}(?=\[[^\]]+::)/gu, " ");
+}
+function removePluginScheduleFields(line) {
+  return removeFields(line, ["start", "scheduled"]);
 }
 function appendField(line, field, value) {
   return `${line.replace(/[ \t]+$/u, "")} [${field}:: ${value}]`;
@@ -117,7 +120,7 @@ function isDateField(key) {
 function getRangeEndDate(dates) {
   if (!dates.start)
     return void 0;
-  for (const candidate of [dates.due, dates.scheduled]) {
+  for (const candidate of [dates.scheduled]) {
     if (candidate && dates.start < candidate)
       return candidate;
   }
@@ -201,6 +204,6 @@ function moveTaskLineToScheduledDayContent(input) {
   import_node_assert.strict.equal(moved.sourceContent, "# Inbox\n- [ ] First #task\n- [ ] Last #task\n");
   import_node_assert.strict.equal(
     moved.targetContent,
-    "# 20260618\u65E5\n- [ ] Move me #task 30m [context:: phone] [created:: 2026-06-18] [scheduled:: 2026-06-18] [due:: 2026-06-18]\n"
+    "# 20260618\u65E5\n- [ ] Move me #task 30m [context:: phone] [created:: 2026-06-18] [scheduled:: 2026-06-18]\n"
   );
 });

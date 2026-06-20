@@ -2,13 +2,14 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { buildMonthViewModel, buildSourceTaskGroups, buildWeekViewModel, normalizePriorityRank } from "../src/services/CalendarViewModel";
 import type { CalendarTask, ReviewPressureByDate, SourceTaskGroupState } from "../src/models/types";
+import { addDays, todayString } from "../src/utils/date";
 
 const tasks: CalendarTask[] = [
   task("a", "Unscheduled"),
   task("b", "Monday", { scheduled: "2024-01-15" }, { estimateMinutes: 45 }),
   task("c", "Span", { start: "2024-01-16", scheduled: "2024-01-18" }, { estimateMinutes: 90 }),
   task("d", "Done", { scheduled: "2024-01-15" }, { completed: true, estimateMinutes: 60 }),
-  task("e", "Due fallback", { due: "2024-01-17" }),
+  task("e", "Due-only unscheduled", { due: "2024-01-17" }),
   task("f", "Inbox path", {}, { filePath: "收集/代办/Inbox.md" }),
   task("g", "Recurring unscheduled", {}, { recurrence: "every week" }),
   task("h", "Recurring overdue", { start: "2024-01-10" }, { recurrence: "every week" }),
@@ -29,7 +30,7 @@ test("builds a 42-cell month heatmap model with scheduled load and review pressu
   assert.equal(model.dayLoads["2024-01-15"].taskMinutes, 105);
   assert.equal(model.dayLoads["2024-01-15"].reviewMinutes, 11);
   assert.equal(model.dayLoads["2024-01-15"].heatScore, 116);
-  assert.equal(model.dayLoads["2024-01-17"].taskMinutes, 120);
+  assert.equal(model.dayLoads["2024-01-17"].taskMinutes, 90);
 });
 
 test("keeps completed point task pressure as month history", () => {
@@ -70,8 +71,8 @@ test("builds a day-row week model with task and review panes", () => {
   ]);
   assert.equal(model.weekDayRows.length, 7);
   assert.deepEqual(model.weekDayRows[0].tasks.map((item) => item.id), ["b"]);
-  assert.deepEqual(model.weekDayRows[2].tasks.map((item) => item.id), ["e"]);
-  assert.deepEqual(model.weekDayRows.flatMap((row) => row.tasks).map((item) => item.id), ["b", "e"]);
+  assert.deepEqual(model.weekDayRows[2].tasks.map((item) => item.id), []);
+  assert.deepEqual(model.weekDayRows.flatMap((row) => row.tasks).map((item) => item.id), ["b"]);
   assert.equal(model.weekDayRows[0].review.count, 2);
   assert.equal(model.dayLoads["2024-01-18"].reviewMinutes, 4);
   assert.equal(model.dayLoads["2024-01-18"].taskMinutes, 0);
@@ -89,7 +90,7 @@ test("recognizes TaskForge scheduled overdue after the filter baseline", () => {
 
 test("keeps long tasks out of point task pressure and builds long task progress lists", () => {
   const longTasks: CalendarTask[] = [
-    task("l1", "Scheduled long", { start: "2026-06-10", due: "2026-06-20" }, {
+    task("l1", "Scheduled long", { start: "2026-06-10", scheduled: "2026-06-20" }, {
       taskKind: "long",
       progressPercent: 25,
       estimateMinutes: 600
@@ -98,7 +99,7 @@ test("keeps long tasks out of point task pressure and builds long task progress 
       taskKind: "long",
       progressPercent: 0
     }),
-    task("l3", "Overdue long", { start: "2026-06-01", due: "2026-06-16" }, {
+    task("l3", "Overdue long", { start: "2026-06-01", scheduled: "2026-06-16" }, {
       taskKind: "long",
       progressPercent: 80
     }),
@@ -117,6 +118,22 @@ test("keeps long tasks out of point task pressure and builds long task progress 
   assert.equal(model.longTaskProgress[0].status, "behind");
 });
 
+test("uses the real current date for long-task pace while browsing a future month", () => {
+  const today = todayString();
+  const start = addDays(today, 10);
+  const end = addDays(today, 40);
+  const futureMonthAnchor = addDays(today, 25);
+  const model = buildMonthViewModel(futureMonthAnchor, [
+    task("future", "Future long", { start, scheduled: end }, {
+      taskKind: "long",
+      progressPercent: 0
+    })
+  ], 1, {}, 30);
+
+  assert.equal(model.longTaskTimelineRows[0].status, "on-track");
+  assert.equal(model.longTaskProgress[0].status, "on-track");
+});
+
 test("builds one unified unscheduled pool for point and long task modes", () => {
   const mixedTasks: CalendarTask[] = [
     task("u1", "Plain unscheduled"),
@@ -124,8 +141,8 @@ test("builds one unified unscheduled pool for point and long task modes", () => 
     task("u3", "Partial long candidate", { start: "2026-06-20" }, { taskKind: "long" }),
     task("u4", "Repeating candidate", {}, { recurrence: "every week" }),
     task("p1", "Scheduled point", { scheduled: "2026-06-17", due: "2026-06-17" }),
-    task("l1", "Ranged long candidate", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
-    task("l2", "Scheduled long", { start: "2026-06-10", due: "2026-06-20", scheduled: "2026-06-10" }, { taskKind: "long" }),
+    task("l1", "Ranged long candidate", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
+    task("l2", "Scheduled long", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
     task("d1", "Done unscheduled", {}, { completed: true })
   ];
 
@@ -140,9 +157,9 @@ test("builds one unified unscheduled pool for point and long task modes", () => 
 
 test("builds current-month long task timeline rows including overdue and clipped cross-month ranges", () => {
   const longTasks: CalendarTask[] = [
-    task("l1", "Cross month", { start: "2026-05-28", due: "2026-06-04" }, { taskKind: "long" }),
-    task("l2", "Inside month", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
-    task("l3", "Overdue long", { start: "2026-06-01", due: "2026-06-16" }, { taskKind: "long", progressPercent: 80 }),
+    task("l1", "Cross month", { start: "2026-05-28", scheduled: "2026-06-04" }, { taskKind: "long" }),
+    task("l2", "Inside month", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
+    task("l3", "Overdue long", { start: "2026-06-01", scheduled: "2026-06-16" }, { taskKind: "long", progressPercent: 80 }),
     task("p1", "Point", { scheduled: "2026-06-12" })
   ];
 
@@ -164,10 +181,10 @@ test("builds current-month long task timeline rows including overdue and clipped
 
 test("attaches active indented child tasks to their parent long task timeline row", () => {
   const longTasks: CalendarTask[] = [
-    task("l1", "Parent long", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
+    task("l1", "Parent long", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
     task("p1", "Unscheduled child", {}, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("p2", "Scheduled child", { scheduled: "2026-06-12" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
-    task("l2", "Child long", { start: "2026-06-13", due: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("l2", "Child long", { start: "2026-06-13", scheduled: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("d1", "Done child", {}, { completed: true, parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("p3", "Other child", {}, { parentLongTaskId: "missing", parentLongTaskText: "Missing" })
   ];
@@ -183,9 +200,9 @@ test("attaches active indented child tasks to their parent long task timeline ro
 
 test("sorts parent long task children by scheduled time with unscheduled children last", () => {
   const longTasks: CalendarTask[] = [
-    task("l1", "Parent long", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
+    task("l1", "Parent long", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
     task("u1", "Unscheduled child", {}, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
-    task("l2", "Later child long", { start: "2026-06-13", due: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
+    task("l2", "Later child long", { start: "2026-06-13", scheduled: "2026-06-15" }, { taskKind: "long", parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("p1", "Earlier point child", { scheduled: "2026-06-11" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("p2", "Middle point child", { scheduled: "2026-06-12" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" })
   ];
@@ -198,9 +215,9 @@ test("sorts parent long task children by scheduled time with unscheduled childre
 
 test("assigns overlapping long task bars to independent layout rows", () => {
   const longTasks: CalendarTask[] = [
-    task("l1", "Long A", { start: "2026-06-10", due: "2026-06-20" }, { taskKind: "long" }),
-    task("l2", "Long B", { start: "2026-06-12", due: "2026-06-18" }, { taskKind: "long" }),
-    task("l3", "Long C", { start: "2026-06-21", due: "2026-06-24" }, { taskKind: "long" })
+    task("l1", "Long A", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
+    task("l2", "Long B", { start: "2026-06-12", scheduled: "2026-06-18" }, { taskKind: "long" }),
+    task("l3", "Long C", { start: "2026-06-21", scheduled: "2026-06-24" }, { taskKind: "long" })
   ];
 
   const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
@@ -263,10 +280,10 @@ function task(
   dates: Partial<CalendarTask["dates"]> = {},
   options: Partial<CalendarTask> = {}
 ): CalendarTask {
-  const scheduleDate = dates.scheduled ?? dates.due ?? dates.start;
+  const scheduleDate = dates.scheduled;
   const isLong = options.taskKind === "long";
   const spanStart = isLong ? dates.start : dates.start && dates.scheduled && dates.start < dates.scheduled ? dates.start : undefined;
-  const spanEnd = isLong ? dates.due : spanStart ? dates.scheduled : undefined;
+  const spanEnd = isLong ? dates.scheduled : spanStart ? dates.scheduled : undefined;
   return {
     id,
     text,

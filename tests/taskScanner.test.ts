@@ -34,7 +34,7 @@ test("classifies tasks by start field only", () => {
   const tasks = scanMarkdownTasksFromText(
     "Tasks.md",
     [
-      "- [ ] Long task #task [start:: 2026-06-10] [due:: 2026-06-20] [progress:: 25%]",
+      "- [ ] Long task #task [start:: 2026-06-10] [scheduled:: 2026-06-20] [progress:: 25%]",
       "- [ ] Started without end #task [start:: 2026-06-12]",
       "- [ ] Due-only point #task [due:: 2026-06-20]",
       "- [ ] Scheduled point #task [scheduled:: 2026-06-17]",
@@ -162,14 +162,14 @@ test("recognizes files inside phase folders as phase task files", () => {
 test("auto-detects existing long task ranges without trigger tags", () => {
   const tasks = scanMarkdownTasksFromText(
     "规划/阶段/腾讯创作大赛.md",
-    "- [ ] Character design 30m [start:: 2026-06-10] [due:: 2026-06-19]\n- [ ] Same-day started task [start:: 2026-06-17] [due:: 2026-06-17]\n- [ ] Legacy span end [start:: 2026-06-20] [scheduled:: 2026-06-25]\n",
+    "- [ ] Character design 30m [start:: 2026-06-10] [scheduled:: 2026-06-19]\n- [ ] Same-day started task [start:: 2026-06-17] [scheduled:: 2026-06-17]\n- [ ] Due no longer ends a span [start:: 2026-06-20] [due:: 2026-06-25]\n",
     { triggerTags: ["task"], readLegacyEmojiDates: true, forceExtract: false }
   );
 
-  assert.deepEqual(tasks.map((item) => item.text), ["Character design", "Same-day started task", "Legacy span end"]);
+  assert.deepEqual(tasks.map((item) => item.text), ["Character design", "Same-day started task", "Due no longer ends a span"]);
   assert.deepEqual(tasks.map((item) => item.taskKind), ["long", "long", "long"]);
   assert.deepEqual(tasks.map((item) => item.spanStart), ["2026-06-10", "2026-06-17", "2026-06-20"]);
-  assert.deepEqual(tasks.map((item) => item.spanEnd), ["2026-06-19", "2026-06-17", "2026-06-25"]);
+  assert.deepEqual(tasks.map((item) => item.spanEnd), ["2026-06-19", "2026-06-17", undefined]);
 });
 
 test("ignores configured excluded path prefixes", () => {

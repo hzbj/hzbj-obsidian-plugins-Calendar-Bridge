@@ -50,11 +50,15 @@ test("lets long-task month timelines collapse and expand past days", () => {
   assert.match(source, /day\.isFoldedPast/);
 });
 
-test("lets long-task month pool include ordinary unscheduled candidates but not phase child tasks", () => {
+test("lets long-task month pool include every unscheduled candidate", () => {
   const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
 
   assert.match(source, /function isTaskVisibleInPool/);
-  assert.match(source, /task\.taskKind === "long" \|\| task\.triggerType !== "phase-note"/);
+  assert.match(source, /text: "Unscheduled tasks"/);
+  assert.doesNotMatch(source, /Unscheduled long tasks/);
+  assert.doesNotMatch(source, /Unscheduled point tasks/);
+  assert.match(source, /return true/);
+  assert.doesNotMatch(source, /triggerType !== "phase-note"/);
 });
 
 test("renders parent long-task labels in point pools and child tasks inside long-task bars", () => {
