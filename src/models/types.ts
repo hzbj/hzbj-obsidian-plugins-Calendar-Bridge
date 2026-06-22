@@ -105,6 +105,8 @@ export interface CalendarDayLoad {
   date: string;
   taskCount: number;
   taskMinutes: number;
+  recurringTaskCount: number;
+  recurringTaskMinutes: number;
   reviewCount: number;
   reviewMinutes: number;
   heatScore: number;
@@ -142,7 +144,6 @@ export interface LongTaskTimelineRow {
   endDay: number;
   isClippedStart: boolean;
   isClippedEnd: boolean;
-  isOverdue: boolean;
   daysLeft: number;
   progressPercent: number;
   status: LongTaskPaceStatus;
@@ -151,6 +152,8 @@ export interface LongTaskTimelineRow {
 export interface WeekDayRow {
   day: CalendarDay;
   tasks: CalendarTask[];
+  recurringTaskCount: number;
+  recurringTaskMinutes: number;
   taskMinutes: number;
   review: ReviewPressure;
   totalMinutes: number;
@@ -169,7 +172,6 @@ export interface CalendarViewModel {
   weekDayRows: WeekDayRow[];
   longTaskProgress: LongTaskProgress[];
   longUnscheduledTasks: CalendarTask[];
-  longOverdueTasks: CalendarTask[];
 }
 
 export interface ReviewNote {

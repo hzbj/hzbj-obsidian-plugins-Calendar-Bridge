@@ -20,7 +20,6 @@ interface TimelineRow {
   fullEndDate: string;
   clippedStart: boolean;
   clippedEnd: boolean;
-  overdue: boolean;
   status?: string;
   childTasks: CalendarTask[];
 }
@@ -30,15 +29,18 @@ let longRangeDraft: { taskId: string; startDate?: string } | null = null;
 export function renderMonthPage(container: HTMLElement, plugin: PersonalSchedulerPlugin, context: CalendarPageContext): void {
   container.empty();
   const groupState = getSourceGroupState(plugin);
+  const viewMode: MonthTaskViewMode = plugin.data.ui.monthTaskViewMode ?? "point";
+  const calendarTasks = viewMode === "long"
+    ? plugin.calendarTasks.filter((task) => !isScheduledDayFilePath(task.filePath, plugin.data.settings.scheduledDayFolder))
+    : plugin.calendarTasks;
   const model = buildMonthViewModel(
     context.anchorDate,
-    plugin.calendarTasks,
+    calendarTasks,
     plugin.data.settings.weekStartsOn,
     plugin.reviewPressure,
     plugin.data.settings.defaultUnestimatedTaskMinutes,
     groupState
   );
-  const viewMode: MonthTaskViewMode = plugin.data.ui.monthTaskViewMode ?? "point";
   const shell = container.createDiv({ cls: "cb-calendar-shell" });
 
   if (viewMode === "long") {
@@ -206,11 +208,13 @@ function renderPointMonthGrid(
 
     const header = cell.createDiv({ cls: "cb-day-header" });
     header.createSpan({ cls: "cb-day-number", text: String(day.dayOfMonth) });
-    header.createSpan({ cls: "cb-task-count", text: String(load.taskCount) });
+    header.createSpan({ cls: "cb-task-count", text: `${load.taskCount}/${load.recurringTaskCount}` });
 
     const stats = cell.createDiv({ cls: "cb-day-stats" });
-    stats.createDiv({ text: `${formatMinutes(load.taskMinutes)} task` });
-    if (load.reviewMinutes > 0) stats.createDiv({ text: `${formatMinutes(load.reviewMinutes)} review` });
+    const loads = stats.createDiv({ cls: "cb-day-load-breakdown" });
+    renderDayLoadMetric(loads, "Task", formatMinutes(load.taskMinutes), "cb-day-load-task");
+    renderDayLoadMetric(loads, "Repeat", formatMinutes(load.recurringTaskMinutes), "cb-day-load-repeat");
+    if (load.reviewMinutes > 0) stats.createDiv({ cls: "cb-day-review-summary", text: `Review ${formatMinutes(load.reviewMinutes)}` });
   }
 
   const pointBars = model.spanBars.filter((bar) => bar.task.taskKind !== "long");
@@ -222,6 +226,12 @@ function renderPointMonthGrid(
     bar.style.gridRow = String(segment.row);
     bar.title = `${segment.bar.task.text} ${segment.bar.startDate} -> ${segment.bar.endDate}`;
   }
+}
+
+function renderDayLoadMetric(parent: HTMLElement, label: string, value: string, extraClass: string): void {
+  const metric = parent.createDiv({ cls: `cb-day-load-summary ${extraClass}` });
+  metric.createSpan({ cls: "cb-day-load-label", text: label });
+  metric.createSpan({ cls: "cb-day-load-value", text: value });
 }
 
 function renderWeekdayHeader(parent: HTMLElement, weekStartsOn: 0 | 1): void {
@@ -280,7 +290,6 @@ function buildLongTimelineRows(rows: CalendarViewModel["longTaskTimelineRows"]):
     fullEndDate: row.fullEndDate,
     clippedStart: row.isClippedStart,
     clippedEnd: row.isClippedEnd,
-    overdue: row.isOverdue,
     status: row.status,
     childTasks: row.childTasks
   }));
@@ -330,7 +339,7 @@ function renderLongVerticalTask(
   row: TimelineRow
 ): void {
   const bar = parent.createDiv({ cls: `cb-long-vertical-bar ${priorityClass(row.task)}` });
-  bar.toggleClass("is-overdue", row.overdue);
+  bar.toggleClass("is-behind", row.status === "behind");
   bar.draggable = true;
   bar.addEventListener("dragstart", (event) => setDragTask(event, row.task.id));
   bar.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, row.task));
@@ -351,6 +360,10 @@ function renderLongTaskChildren(parent: HTMLElement, plugin: PersonalSchedulerPl
   if (childTasks.length === 0) return;
   const list = parent.createDiv({ cls: "cb-long-child-list" });
   for (const child of childTasks) {
+    if (isRecurringTask(child)) {
+      renderRecurringChildTask(list, child);
+      continue;
+    }
     const schedule = childTaskScheduleLabel(child);
     if (child.taskKind === "long" && schedule) {
       renderChildLongTaskCard(list, plugin, child, schedule);
@@ -360,6 +373,14 @@ function renderLongTaskChildren(parent: HTMLElement, plugin: PersonalSchedulerPl
     item.createSpan({ cls: "cb-long-child-title", text: childTaskContentLabel(child) });
     if (schedule) item.createSpan({ cls: "cb-long-child-time", text: schedule });
   }
+}
+
+function renderRecurringChildTask(parent: HTMLElement, task: CalendarTask): void {
+  const item = parent.createDiv({ cls: "cb-long-child-item cb-long-child-recurring" });
+  const title = item.createDiv({ cls: "cb-long-child-recurring-title" });
+  title.createSpan({ cls: "cb-long-child-title", text: childTaskContentLabel(task) });
+  title.createSpan({ cls: "cb-long-child-cycle", text: recurringCycleLabel(task) });
+  item.createDiv({ cls: "cb-long-child-refresh", text: recurringRefreshLabel(task) });
 }
 
 function renderChildLongTaskCard(parent: HTMLElement, plugin: PersonalSchedulerPlugin, task: CalendarTask, schedule: string): void {
@@ -385,6 +406,41 @@ function childTaskScheduleLabel(task: CalendarTask): string | undefined {
   if (task.taskKind === "long" && task.spanStart && task.spanEnd) return `${shortDate(task.spanStart)} - ${shortDate(task.spanEnd)}`;
   if (task.scheduleDate) return shortDate(task.scheduleDate);
   return undefined;
+}
+
+function recurringCycleLabel(task: CalendarTask): string {
+  const normalized = normalizedRecurrence(task);
+  if (normalized === "every day") return "每天";
+  if (normalized === "every week") return "每周";
+  if (normalized === "every month") return "每月";
+  if (normalized === "every year") return "每年";
+  return task.recurrence?.trim() ?? "循环";
+}
+
+function recurringRefreshLabel(task: CalendarTask): string {
+  const start = task.dates.start;
+  const normalized = normalizedRecurrence(task);
+  if (!start) return "刷新：--";
+  if (normalized === "every day") return "刷新：每天";
+  if (normalized === "every week") return `刷新：${weekdayLabel(start)}`;
+  if (normalized === "every month") return `刷新：${Number.parseInt(start.slice(8, 10), 10)}日`;
+  if (normalized === "every year") return `刷新：${shortDate(start)}`;
+  return `刷新：${shortDate(start)}`;
+}
+
+function normalizedRecurrence(task: CalendarTask): string | undefined {
+  return task.recurrence?.trim().toLowerCase().replace(/\s+/gu, " ");
+}
+
+function weekdayLabel(date: string): string {
+  const parts = date.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+  if (!parts) return shortDate(date);
+  const day = new Date(Number.parseInt(parts[1], 10), Number.parseInt(parts[2], 10) - 1, Number.parseInt(parts[3], 10)).getDay();
+  return ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][day];
+}
+
+function isRecurringTask(task: CalendarTask): boolean {
+  return Boolean(task.recurrence?.trim());
 }
 
 function childTaskContentLabel(task: CalendarTask): string {
@@ -619,4 +675,11 @@ function formatMinutes(minutes: number): string {
 
 function shortDate(date: string | undefined): string {
   return date ? date.slice(5) : "--";
+}
+
+export function isScheduledDayFilePath(filePath: string, scheduledDayFolder: string): boolean {
+  const folder = (scheduledDayFolder.trim().replace(/\\/gu, "/").replace(/\/+$/u, "") || "Calendar/Scheduled");
+  const normalized = filePath.replace(/\\/gu, "/");
+  if (!normalized.startsWith(`${folder}/`)) return false;
+  return /^\d{8}\.md$/u.test(normalized.slice(folder.length + 1));
 }

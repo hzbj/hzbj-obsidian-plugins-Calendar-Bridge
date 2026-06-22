@@ -393,21 +393,24 @@ function parseProgressPercent(raw) {
 }
 
 // src/services/CalendarViewModel.ts
-function buildMonthViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {}, defaultUnestimatedTaskMinutes = 30, sourceGroupState = {}) {
+function buildMonthViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {}, defaultUnestimatedTaskMinutes = 30, sourceGroupState = {}, paceDate = todayString()) {
   const days = monthGridDates(anchorDate, weekStartsOn);
-  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "month", sourceGroupState);
+  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "month", sourceGroupState, paceDate);
 }
-function buildWeekViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {}, defaultUnestimatedTaskMinutes = 30) {
+function buildWeekViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {}, defaultUnestimatedTaskMinutes = 30, paceDate = todayString()) {
   const days = weekDates(anchorDate, weekStartsOn);
-  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "week");
+  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "week", {}, paceDate);
 }
-function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}) {
-  const activeTasks = tasks.filter((task) => !task.completed);
-  const loadTasks = mode === "month" ? tasks : activeTasks;
-  const pointTasks = activeTasks.filter((task) => task.taskKind !== "long");
-  const pointLoadTasks = loadTasks.filter((task) => task.taskKind !== "long");
-  const longTasks = activeTasks.filter((task) => task.taskKind === "long");
-  const topLevelLongTasks = longTasks.filter((task) => !task.parentLongTaskId);
+function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}, paceDate) {
+  const activeTasks = tasks.filter((task2) => !task2.completed);
+  const activeTasksById = new Map(activeTasks.map((task2) => [task2.id, task2]));
+  const recurringLoadTasks = activeTasks.filter(isRecurringLoadTask);
+  const concreteActiveTasks = activeTasks.filter((task2) => !isRecurringLoadTask(task2));
+  const loadTasks = (mode === "month" ? tasks : activeTasks).filter((task2) => !isRecurringLoadTask(task2));
+  const pointTasks = concreteActiveTasks.filter((task2) => task2.taskKind !== "long");
+  const pointLoadTasks = loadTasks.filter((task2) => task2.taskKind !== "long");
+  const longTasks = concreteActiveTasks.filter((task2) => task2.taskKind === "long");
+  const topLevelLongTasks = longTasks.filter((task2) => !task2.parentLongTaskId);
   const visibleDates = new Set(days.map((day) => day.date));
   const tasksByDate = {};
   const dayLoads = {};
@@ -418,32 +421,37 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
       date: day.date,
       taskCount: 0,
       taskMinutes: 0,
+      recurringTaskCount: 0,
+      recurringTaskMinutes: 0,
       reviewCount: review.count,
       reviewMinutes: review.minutes,
       heatScore: review.minutes
     };
   }
-  for (const task of pointLoadTasks) {
-    for (const date of activeDatesForTask(task, days[0]?.date, days[days.length - 1]?.date, mode)) {
+  for (const task2 of pointLoadTasks) {
+    for (const date of activeDatesForTask(task2, days[0]?.date, days[days.length - 1]?.date, mode)) {
       if (!visibleDates.has(date))
         continue;
-      tasksByDate[date].push(task);
+      tasksByDate[date].push(task2);
       dayLoads[date].taskCount += 1;
-      dayLoads[date].taskMinutes += task.estimateMinutes ?? defaultUnestimatedTaskMinutes;
-      dayLoads[date].heatScore = dayLoads[date].taskMinutes + dayLoads[date].reviewMinutes;
+      dayLoads[date].taskMinutes += task2.estimateMinutes ?? defaultUnestimatedTaskMinutes;
     }
   }
-  const overdueTasks = pointTasks.flatMap((task) => {
-    const reason = getOverdueReason(task, todayStringFromAnchor(anchorDate));
-    return reason ? [{ ...task, overdueReason: reason }] : [];
+  addRecurringTaskLoads(days, dayLoads, recurringLoadTasks, activeTasksById, defaultUnestimatedTaskMinutes);
+  for (const load of Object.values(dayLoads)) {
+    load.heatScore = load.taskMinutes + load.recurringTaskMinutes + load.reviewMinutes;
+  }
+  const overdueTasks = pointTasks.flatMap((task2) => {
+    const reason = getOverdueReason(task2, todayStringFromAnchor(anchorDate));
+    return reason ? [{ ...task2, overdueReason: reason }] : [];
   });
-  const unifiedUnscheduledTasks = activeTasks.flatMap((task) => {
-    const reason = getUnifiedUnscheduledReason(task);
-    return reason ? [{ ...task, unscheduledReason: reason }] : [];
+  const unifiedUnscheduledTasks = concreteActiveTasks.flatMap((task2) => {
+    const reason = getUnifiedUnscheduledReason(task2);
+    return reason ? [{ ...task2, unscheduledReason: reason }] : [];
   });
-  const unscheduledTasks = pointTasks.flatMap((task) => {
-    const reason = getUnscheduledReason(task);
-    return reason ? [{ ...task, unscheduledReason: reason }] : [];
+  const unscheduledTasks = pointTasks.flatMap((task2) => {
+    const reason = getUnscheduledReason(task2);
+    return reason ? [{ ...task2, unscheduledReason: reason }] : [];
   });
   const childTasksByLongTaskId = buildChildTasksByLongTaskId(activeTasks);
   return {
@@ -453,23 +461,22 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
     overdueTasks,
     unifiedUnscheduledTasks,
     dayLoads,
-    spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
+    spanBars: mode === "month" ? buildSpanBars(days, concreteActiveTasks) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, paceDate) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) : [],
-    longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
-    longUnscheduledTasks: longTasks.filter((task) => !task.spanStart || !task.spanEnd),
-    longOverdueTasks: longTasks.filter((task) => isLongTaskOverdue(task, todayStringFromAnchor(anchorDate)))
+    longTaskProgress: buildLongTaskProgress(longTasks, paceDate),
+    longUnscheduledTasks: longTasks.filter((task2) => !task2.spanStart || !task2.spanEnd)
   };
 }
 function buildChildTasksByLongTaskId(tasks) {
   const byParent = /* @__PURE__ */ new Map();
-  for (const task of tasks) {
-    if (!task.parentLongTaskId || task.parentLongTaskId === task.id)
+  for (const task2 of tasks) {
+    if (!task2.parentLongTaskId || task2.parentLongTaskId === task2.id)
       continue;
-    const children = byParent.get(task.parentLongTaskId) ?? [];
-    children.push(task);
-    byParent.set(task.parentLongTaskId, children);
+    const children = byParent.get(task2.parentLongTaskId) ?? [];
+    children.push(task2);
+    byParent.set(task2.parentLongTaskId, children);
   }
   for (const [parentId, children] of byParent) {
     byParent.set(parentId, sortLongTaskChildren(children));
@@ -495,10 +502,10 @@ function sortLongTaskChildren(tasks) {
     return a.id.localeCompare(b.id);
   });
 }
-function childTaskSortDate(task) {
-  if (task.taskKind === "long")
-    return task.spanStart ?? task.scheduleDate;
-  return task.scheduleDate;
+function childTaskSortDate(task2) {
+  if (task2.taskKind === "long")
+    return task2.spanStart ?? task2.scheduleDate;
+  return task2.scheduleDate;
 }
 function normalizePriorityRank(priority) {
   const normalized = normalizeTaskPriority(priority);
@@ -512,10 +519,10 @@ function normalizePriorityRank(priority) {
 }
 function buildSourceTaskGroups(tasks, state = {}) {
   const byFile = /* @__PURE__ */ new Map();
-  for (const task of tasks) {
-    const items = byFile.get(task.filePath) ?? [];
-    items.push(task);
-    byFile.set(task.filePath, items);
+  for (const task2 of tasks) {
+    const items = byFile.get(task2.filePath) ?? [];
+    items.push(task2);
+    byFile.set(task2.filePath, items);
   }
   const order = state.order ?? [];
   const indexByFile = new Map(order.map((filePath, index) => [filePath, index]));
@@ -547,19 +554,19 @@ function sortTasksForGroup(tasks, state) {
   });
 }
 function buildLongTaskProgress(tasks, today) {
-  return tasks.filter((task) => task.spanStart && task.spanEnd && !isLongTaskOverdue(task, today)).map((task) => {
-    const start = task.spanStart;
-    const due = task.spanEnd;
+  return tasks.filter((task2) => task2.spanStart && task2.spanEnd && !isLongTaskOverdue(task2, today)).map((task2) => {
+    const start = task2.spanStart;
+    const due = task2.spanEnd;
     const totalDays = Math.max(1, diffDays(start, due));
     const daysElapsed = Math.min(totalDays, Math.max(0, diffDays(start, today)));
     const daysLeft = Math.max(1, diffDays(today, due));
-    const progressPercent = task.progressPercent ?? 0;
+    const progressPercent = task2.progressPercent ?? 0;
     const expectedProgressPercent = Math.min(100, Math.round(daysElapsed / totalDays * 100));
     const remainingRatio = Math.max(0, 100 - progressPercent) / 100;
     const dailyProgressPressure = Math.round((100 - progressPercent) / daysLeft * 10) / 10;
-    const dailyEstimatedMinutes = task.estimateMinutes !== void 0 ? Math.round(task.estimateMinutes * remainingRatio / daysLeft) : void 0;
+    const dailyEstimatedMinutes = task2.estimateMinutes !== void 0 ? Math.round(task2.estimateMinutes * remainingRatio / daysLeft) : void 0;
     return {
-      task,
+      task: task2,
       daysElapsed,
       daysLeft,
       totalDays,
@@ -567,12 +574,12 @@ function buildLongTaskProgress(tasks, today) {
       progressPercent,
       dailyProgressPressure,
       dailyEstimatedMinutes,
-      status: progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track"
+      status: longTaskPaceStatus(progressPercent, expectedProgressPercent)
     };
   });
 }
-function isLongTaskOverdue(task, today) {
-  return Boolean(task.spanEnd && task.spanEnd < today && (task.progressPercent ?? 0) < 100);
+function isLongTaskOverdue(task2, today) {
+  return Boolean(task2.spanEnd && task2.spanEnd < today && (task2.progressPercent ?? 0) < 100);
 }
 function buildLongTaskTimelineRows(days, tasks, childTasksByLongTaskId, today) {
   const monthDays = days.filter((day) => day.inCurrentMonth);
@@ -580,7 +587,7 @@ function buildLongTaskTimelineRows(days, tasks, childTasksByLongTaskId, today) {
   const last = monthDays[monthDays.length - 1]?.date;
   if (!first2 || !last)
     return [];
-  return tasks.filter((task) => task.spanStart && task.spanEnd && task.spanEnd >= first2 && task.spanStart <= last).sort((a, b) => {
+  return tasks.filter((task2) => task2.spanStart && task2.spanEnd && task2.spanEnd >= first2 && task2.spanStart <= last).sort((a, b) => {
     const startCompare = a.spanStart.localeCompare(b.spanStart);
     if (startCompare !== 0)
       return startCompare;
@@ -588,18 +595,19 @@ function buildLongTaskTimelineRows(days, tasks, childTasksByLongTaskId, today) {
     if (endCompare !== 0)
       return endCompare;
     return a.id.localeCompare(b.id);
-  }).map((task) => {
-    const fullStartDate = task.spanStart;
-    const fullEndDate = task.spanEnd;
+  }).map((task2) => {
+    const fullStartDate = task2.spanStart;
+    const fullEndDate = task2.spanEnd;
     const visibleStartDate = fullStartDate < first2 ? first2 : fullStartDate;
     const visibleEndDate = fullEndDate > last ? last : fullEndDate;
-    const progressPercent = task.progressPercent ?? 0;
+    const progressPercent = task2.progressPercent ?? 0;
     const totalDays = Math.max(1, diffDays(fullStartDate, fullEndDate));
     const daysElapsed = Math.min(totalDays, Math.max(0, diffDays(fullStartDate, today)));
     const expectedProgressPercent = Math.min(100, Math.round(daysElapsed / totalDays * 100));
+    const overdue = isLongTaskOverdue(task2, today);
     return {
-      task,
-      childTasks: childTasksByLongTaskId.get(task.id) ?? [],
+      task: task2,
+      childTasks: childTasksByLongTaskId.get(task2.id) ?? [],
       fullStartDate,
       fullEndDate,
       visibleStartDate,
@@ -608,12 +616,14 @@ function buildLongTaskTimelineRows(days, tasks, childTasksByLongTaskId, today) {
       endDay: Number.parseInt(visibleEndDate.slice(8, 10), 10),
       isClippedStart: fullStartDate < first2,
       isClippedEnd: fullEndDate > last,
-      isOverdue: isLongTaskOverdue(task, today),
       daysLeft: Math.max(0, diffDays(today, fullEndDate)),
       progressPercent,
-      status: progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track"
+      status: overdue ? "behind" : longTaskPaceStatus(progressPercent, expectedProgressPercent)
     };
   });
+}
+function longTaskPaceStatus(progressPercent, expectedProgressPercent) {
+  return progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track";
 }
 function buildSpanBars(days, tasks) {
   const first2 = days[0]?.date;
@@ -622,13 +632,13 @@ function buildSpanBars(days, tasks) {
     return [];
   const indexByDate = new Map(days.map((day, index) => [day.date, index]));
   const bars = [];
-  for (const task of tasks) {
-    if (!task.spanStart || !task.spanEnd || task.spanEnd < first2 || task.spanStart > last)
+  for (const task2 of tasks) {
+    if (!task2.spanStart || !task2.spanEnd || task2.spanEnd < first2 || task2.spanStart > last)
       continue;
-    const startDate = task.spanStart < first2 ? first2 : task.spanStart;
-    const endDate = task.spanEnd > last ? last : task.spanEnd;
+    const startDate = task2.spanStart < first2 ? first2 : task2.spanStart;
+    const endDate = task2.spanEnd > last ? last : task2.spanEnd;
     bars.push({
-      task,
+      task: task2,
       startDate,
       endDate,
       startIndex: indexByDate.get(startDate) ?? 0,
@@ -664,18 +674,20 @@ function buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) {
     return {
       day,
       tasks: tasksByDate[day.date] ?? [],
-      taskMinutes: dayLoads[day.date]?.taskMinutes ?? 0,
+      recurringTaskCount: dayLoads[day.date]?.recurringTaskCount ?? 0,
+      recurringTaskMinutes: dayLoads[day.date]?.recurringTaskMinutes ?? 0,
+      taskMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + (dayLoads[day.date]?.recurringTaskMinutes ?? 0),
       review,
-      totalMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + review.minutes
+      totalMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + (dayLoads[day.date]?.recurringTaskMinutes ?? 0) + review.minutes
     };
   });
 }
-function activeDatesForTask(task, visibleStart, visibleEnd, mode = "month") {
-  if (task.spanStart && task.spanEnd) {
+function activeDatesForTask(task2, visibleStart, visibleEnd, mode = "month") {
+  if (task2.spanStart && task2.spanEnd) {
     if (mode === "week")
       return [];
-    const start = visibleStart && task.spanStart < visibleStart ? visibleStart : task.spanStart;
-    const end = visibleEnd && task.spanEnd > visibleEnd ? visibleEnd : task.spanEnd;
+    const start = visibleStart && task2.spanStart < visibleStart ? visibleStart : task2.spanStart;
+    const end = visibleEnd && task2.spanEnd > visibleEnd ? visibleEnd : task2.spanEnd;
     if (end < start)
       return [];
     const dates = [];
@@ -684,39 +696,108 @@ function activeDatesForTask(task, visibleStart, visibleEnd, mode = "month") {
     }
     return dates;
   }
-  return task.scheduleDate ? [task.scheduleDate] : [];
+  return task2.scheduleDate ? [task2.scheduleDate] : [];
 }
-function getOverdueReason(task, today) {
-  if (task.dates.scheduled && task.dates.scheduled > "2026-06-12" && task.dates.scheduled < today)
+function getOverdueReason(task2, today) {
+  if (task2.dates.scheduled && task2.dates.scheduled > "2026-06-12" && task2.dates.scheduled < today)
     return "scheduled before today";
-  if (isRecurring(task) && task.dates.start && task.dates.start < today)
+  if (isRecurring(task2) && task2.dates.start && task2.dates.start < today)
     return "recurring start before today";
   return void 0;
 }
-function getUnscheduledReason(task) {
-  if (task.filePath.includes("\u6536\u96C6/\u4EE3\u529E"))
+function getUnscheduledReason(task2) {
+  if (task2.filePath.includes("\u6536\u96C6/\u4EE3\u529E"))
     return "path contains \u6536\u96C6/\u4EE3\u529E";
-  if (task.filePath.includes("\u89C4\u5212/\u9636\u6BB5"))
+  if (task2.filePath.includes("\u89C4\u5212/\u9636\u6BB5"))
     return "path contains \u89C4\u5212/\u9636\u6BB5";
-  if (!task.dates.scheduled && !isRecurring(task))
+  if (!task2.dates.scheduled && !isRecurring(task2))
     return "scheduled is empty and not recurring";
   return void 0;
 }
-function getUnifiedUnscheduledReason(task) {
-  if (task.dates.scheduled)
+function getUnifiedUnscheduledReason(task2) {
+  if (task2.dates.scheduled)
     return void 0;
-  if (isRecurring(task))
+  if (isRecurring(task2))
     return void 0;
-  if (task.taskKind === "long" && task.spanStart && task.spanEnd)
+  if (task2.taskKind === "long" && task2.spanStart && task2.spanEnd)
     return void 0;
-  if (task.filePath.includes("\u93C0\u5815\u6CE6/\u6D60\uFF45\u59D9"))
+  if (task2.filePath.includes("\u93C0\u5815\u6CE6/\u6D60\uFF45\u59D9"))
     return "path contains \u93C0\u5815\u6CE6/\u6D60\uFF45\u59D9";
-  if (task.filePath.includes("\u7459\u52EB\u579D/\u95C3\u8235\uE18C"))
+  if (task2.filePath.includes("\u7459\u52EB\u579D/\u95C3\u8235\uE18C"))
     return "path contains \u7459\u52EB\u579D/\u95C3\u8235\uE18C";
   return "not scheduled";
 }
-function isRecurring(task) {
-  return Boolean(task.recurrence?.trim()) || /\brecurr/i.test(task.rawLine) || /🔁/u.test(task.rawLine);
+function isRecurring(task2) {
+  return Boolean(task2.recurrence?.trim()) || /\brecurr/i.test(task2.rawLine) || /🔁/u.test(task2.rawLine);
+}
+function isRecurringLoadTask(task2) {
+  return recurringFrequency(task2) !== void 0 && Boolean(task2.dates.start);
+}
+function recurringFrequency(task2) {
+  const normalized = task2.recurrence?.trim().toLowerCase().replace(/\s+/gu, " ");
+  if (normalized === "every day")
+    return "day";
+  if (normalized === "every week")
+    return "week";
+  if (normalized === "every month")
+    return "month";
+  if (normalized === "every year")
+    return "year";
+  return void 0;
+}
+function addRecurringTaskLoads(days, dayLoads, tasks, tasksById, defaultUnestimatedTaskMinutes) {
+  for (const task2 of tasks) {
+    const frequency = recurringFrequency(task2);
+    const startDate = task2.dates.start;
+    if (!frequency || !startDate)
+      continue;
+    const endDate = recurringEndDate(task2, tasksById);
+    if (endDate && startDate > endDate)
+      continue;
+    for (const day of days) {
+      if (day.date < startDate)
+        continue;
+      if (endDate && day.date > endDate)
+        continue;
+      if (!recursOnDate(startDate, day.date, frequency))
+        continue;
+      const load = dayLoads[day.date];
+      load.recurringTaskCount += 1;
+      load.recurringTaskMinutes += task2.estimateMinutes ?? defaultUnestimatedTaskMinutes;
+    }
+  }
+}
+function recurringEndDate(task2, tasksById) {
+  if (task2.dates.scheduled)
+    return task2.dates.scheduled;
+  const parent = task2.parentLongTaskId ? tasksById.get(task2.parentLongTaskId) : void 0;
+  return parent?.spanEnd ?? parent?.dates.scheduled;
+}
+function recursOnDate(startDate, date, frequency) {
+  if (frequency === "day")
+    return true;
+  const start = parseDateParts(startDate);
+  const current = parseDateParts(date);
+  if (!start || !current)
+    return false;
+  if (frequency === "week")
+    return dayOfWeek(startDate) === dayOfWeek(date);
+  if (frequency === "month")
+    return current.day === start.day;
+  return current.month === start.month && current.day === start.day;
+}
+function parseDateParts(date) {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+  if (!match)
+    return void 0;
+  return {
+    year: Number.parseInt(match[1], 10),
+    month: Number.parseInt(match[2], 10),
+    day: Number.parseInt(match[3], 10)
+  };
+}
+function dayOfWeek(date) {
+  return (/* @__PURE__ */ new Date(`${date}T00:00:00`)).getDay();
 }
 function todayStringFromAnchor(anchorDate) {
   return anchorDate || todayString();
@@ -737,7 +818,9 @@ function buildAiScheduleContext(input) {
     input.tasks,
     input.settings.weekStartsOn,
     input.reviewPressure,
-    input.settings.defaultUnestimatedTaskMinutes
+    input.settings.defaultUnestimatedTaskMinutes,
+    {},
+    input.anchorDate
   );
   return {
     schemaVersion: 1,
@@ -752,8 +835,8 @@ function buildAiScheduleContext(input) {
       excludedPathPrefixes: input.settings.excludedPathPrefixes,
       scheduledDayFolder: input.settings.scheduledDayFolder
     },
-    unscheduledTasks: model.unifiedUnscheduledTasks.map((task) => taskSnapshot(task, task.unscheduledReason)),
-    overdueTasks: model.overdueTasks.map((task) => taskSnapshot(task, task.overdueReason)),
+    unscheduledTasks: model.unifiedUnscheduledTasks.map((task2) => taskSnapshot(task2, task2.unscheduledReason)),
+    overdueTasks: model.overdueTasks.map((task2) => taskSnapshot(task2, task2.overdueReason)),
     dailyLoadsByHorizon: {
       "7": buildDailyLoads(input, 7),
       "14": buildDailyLoads(input, 14),
@@ -819,23 +902,23 @@ function buildDailyLoads(input, horizonDays) {
   });
 }
 function taskMinutesForDate(tasks, date, defaultUnestimatedTaskMinutes) {
-  return tasks.filter((task) => !task.completed && task.taskKind !== "long" && task.scheduleDate === date).reduce((total, task) => total + (task.estimateMinutes ?? defaultUnestimatedTaskMinutes), 0);
+  return tasks.filter((task2) => !task2.completed && task2.taskKind !== "long" && task2.scheduleDate === date).reduce((total, task2) => total + (task2.estimateMinutes ?? defaultUnestimatedTaskMinutes), 0);
 }
-function taskSnapshot(task, reason) {
-  const priority = normalizeTaskPriority(task.priority);
+function taskSnapshot(task2, reason) {
+  const priority = normalizeTaskPriority(task2.priority);
   return {
-    id: task.id,
-    text: task.text,
-    filePath: task.filePath,
-    lineNumber: task.lineNumber,
-    taskKind: task.taskKind,
+    id: task2.id,
+    text: task2.text,
+    filePath: task2.filePath,
+    lineNumber: task2.lineNumber,
+    taskKind: task2.taskKind,
     priority,
-    priorityRank: normalizePriorityRank(task.priority),
-    estimateMinutes: task.estimateMinutes,
-    progressPercent: task.progressPercent,
-    dates: task.dates,
-    project: task.project,
-    context: task.context,
+    priorityRank: normalizePriorityRank(task2.priority),
+    estimateMinutes: task2.estimateMinutes,
+    progressPercent: task2.progressPercent,
+    dates: task2.dates,
+    project: task2.project,
+    context: task2.context,
     reason
   };
 }
@@ -1022,8 +1105,8 @@ var TaskDateWriter = class {
 };
 
 // src/services/TaskPlanningGuards.ts
-function isScheduledPointTask(task) {
-  return task?.taskKind === "point" && Boolean(task.dates.scheduled);
+function isScheduledPointTask(task2) {
+  return task2?.taskKind === "point" && Boolean(task2.dates.scheduled);
 }
 
 // src/services/TaskScanner.ts
@@ -1048,7 +1131,7 @@ function scanMarkdownTasksFromText(filePath, content, options) {
       indentStack.pop();
     }
     const parentLongTask = [...indentStack].reverse().find((item) => item.task.taskKind === "long")?.task;
-    const task = {
+    const task2 = {
       id,
       text: cleanTaskDisplayText(line, options.triggerTags),
       filePath,
@@ -1079,8 +1162,8 @@ function scanMarkdownTasksFromText(filePath, content, options) {
       triggerType,
       phaseId: options.phaseId
     };
-    tasks.push(task);
-    indentStack.push({ indentLevel, task });
+    tasks.push(task2);
+    indentStack.push({ indentLevel, task: task2 });
   });
   return tasks;
 }
@@ -1228,15 +1311,16 @@ var longRangeDraft = null;
 function renderMonthPage(container, plugin, context) {
   container.empty();
   const groupState = getSourceGroupState(plugin);
+  const viewMode = plugin.data.ui.monthTaskViewMode ?? "point";
+  const calendarTasks = viewMode === "long" ? plugin.calendarTasks.filter((task2) => !isScheduledDayFilePath(task2.filePath, plugin.data.settings.scheduledDayFolder)) : plugin.calendarTasks;
   const model = buildMonthViewModel(
     context.anchorDate,
-    plugin.calendarTasks,
+    calendarTasks,
     plugin.data.settings.weekStartsOn,
     plugin.reviewPressure,
     plugin.data.settings.defaultUnestimatedTaskMinutes,
     groupState
   );
-  const viewMode = plugin.data.ui.monthTaskViewMode ?? "point";
   const shell = container.createDiv({ cls: "cb-calendar-shell" });
   if (viewMode === "long") {
     renderGroupedPool(shell.createDiv({ cls: "cb-panel cb-task-pool" }), plugin, model, viewMode);
@@ -1252,7 +1336,7 @@ function renderGroupedPool(parent, plugin, model, viewMode) {
   parent.createEl("h2", { text: "Unscheduled tasks" });
   parent.createEl("button", { cls: "cb-action-button", text: "Rescan" }).addEventListener("click", () => void plugin.rescanTasks());
   renderSortToggle(parent, plugin, state);
-  const tasks = model.unifiedUnscheduledTasks.filter((task) => isTaskVisibleInPool(task, viewMode));
+  const tasks = model.unifiedUnscheduledTasks.filter((task2) => isTaskVisibleInPool(task2, viewMode));
   const groups = buildSourceTaskGroups(tasks, state);
   if (groups.length === 0) {
     parent.createDiv({ cls: "cb-empty", text: "No unscheduled tasks." });
@@ -1261,7 +1345,7 @@ function renderGroupedPool(parent, plugin, model, viewMode) {
   for (const group of groups)
     renderSourceGroup(parent, plugin, group, viewMode);
 }
-function isTaskVisibleInPool(task, viewMode) {
+function isTaskVisibleInPool(task2, viewMode) {
   return true;
 }
 function renderSortToggle(parent, plugin, state) {
@@ -1297,42 +1381,42 @@ function renderSourceGroup(parent, plugin, group, viewMode) {
   header.addEventListener("click", () => void toggleSourceGroup(plugin, group.sourceFilePath));
   if (group.collapsed)
     return;
-  for (const task of group.tasks) {
-    viewMode === "long" ? renderLongPoolTask(section, plugin, task) : renderPointPoolTask(section, plugin, task);
+  for (const task2 of group.tasks) {
+    viewMode === "long" ? renderLongPoolTask(section, plugin, task2) : renderPointPoolTask(section, plugin, task2);
   }
 }
-function renderPointPoolTask(parent, plugin, task) {
-  const card = parent.createDiv({ cls: `cb-task-card ${priorityClass(task)}` });
+function renderPointPoolTask(parent, plugin, task2) {
+  const card = parent.createDiv({ cls: `cb-task-card ${priorityClass(task2)}` });
   card.draggable = true;
-  card.addEventListener("dragstart", (event) => setDragTask(event, task.id));
-  card.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, task));
-  renderTaskTitle(card, plugin, task);
+  card.addEventListener("dragstart", (event) => setDragTask(event, task2.id));
+  card.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, task2));
+  renderTaskTitle(card, plugin, task2);
   const meta = card.createDiv({ cls: "cb-meta-row" });
-  meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task) });
-  if (task.estimateMinutes)
-    meta.createSpan({ cls: "cb-chip", text: formatMinutes(task.estimateMinutes) });
-  renderParentLongTaskChip(meta, task);
-  if (task.unscheduledReason)
-    meta.createSpan({ cls: "cb-chip cb-chip-info", text: task.unscheduledReason });
+  meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task2) });
+  if (task2.estimateMinutes)
+    meta.createSpan({ cls: "cb-chip", text: formatMinutes(task2.estimateMinutes) });
+  renderParentLongTaskChip(meta, task2);
+  if (task2.unscheduledReason)
+    meta.createSpan({ cls: "cb-chip cb-chip-info", text: task2.unscheduledReason });
 }
-function renderLongPoolTask(parent, plugin, task) {
-  const card = parent.createDiv({ cls: `cb-task-card cb-long-task-card ${priorityClass(task)}` });
-  card.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, task));
-  renderTaskTitle(card, plugin, task);
+function renderLongPoolTask(parent, plugin, task2) {
+  const card = parent.createDiv({ cls: `cb-task-card cb-long-task-card ${priorityClass(task2)}` });
+  card.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, task2));
+  renderTaskTitle(card, plugin, task2);
   const meta = card.createDiv({ cls: "cb-meta-row" });
-  meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task) });
-  meta.createSpan({ cls: "cb-chip", text: `progress ${task.progressPercent ?? 0}%` });
+  meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel(task2) });
+  meta.createSpan({ cls: "cb-chip", text: `progress ${task2.progressPercent ?? 0}%` });
   const actions = card.createDiv({ cls: "cb-task-actions cb-inline-actions" });
   actions.createEl("button", { text: "Set range" }).addEventListener("click", () => {
-    longRangeDraft = { taskId: task.id };
+    longRangeDraft = { taskId: task2.id };
     plugin.refreshViews();
   });
 }
-function renderTaskTitle(parent, plugin, task) {
+function renderTaskTitle(parent, plugin, task2) {
   const row = parent.createDiv({ cls: "cb-task-title-row" });
-  row.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
-  row.createSpan({ cls: "cb-priority-marker", text: priorityLabel(task) });
-  row.createSpan({ cls: "cb-task-title", text: task.text });
+  row.addEventListener("click", () => void plugin.openTaskSourceNote(task2.id));
+  row.createSpan({ cls: "cb-priority-marker", text: priorityLabel(task2) });
+  row.createSpan({ cls: "cb-task-title", text: task2.text });
 }
 function renderLongVerticalTimeline(parent, plugin, context, model, viewMode, rerender) {
   renderToolbar(parent, context, plugin, viewMode);
@@ -1377,11 +1461,13 @@ function renderPointMonthGrid(parent, plugin, context, model, viewMode) {
     setupPointDateTarget(cell, plugin, day.date);
     const header = cell.createDiv({ cls: "cb-day-header" });
     header.createSpan({ cls: "cb-day-number", text: String(day.dayOfMonth) });
-    header.createSpan({ cls: "cb-task-count", text: String(load.taskCount) });
+    header.createSpan({ cls: "cb-task-count", text: `${load.taskCount}/${load.recurringTaskCount}` });
     const stats = cell.createDiv({ cls: "cb-day-stats" });
-    stats.createDiv({ text: `${formatMinutes(load.taskMinutes)} task` });
+    const loads = stats.createDiv({ cls: "cb-day-load-breakdown" });
+    renderDayLoadMetric(loads, "Task", formatMinutes(load.taskMinutes), "cb-day-load-task");
+    renderDayLoadMetric(loads, "Repeat", formatMinutes(load.recurringTaskMinutes), "cb-day-load-repeat");
     if (load.reviewMinutes > 0)
-      stats.createDiv({ text: `${formatMinutes(load.reviewMinutes)} review` });
+      stats.createDiv({ cls: "cb-day-review-summary", text: `Review ${formatMinutes(load.reviewMinutes)}` });
   }
   const pointBars = model.spanBars.filter((bar) => bar.task.taskKind !== "long");
   for (const segment of splitSpanBarsByWeek(pointBars)) {
@@ -1392,6 +1478,11 @@ function renderPointMonthGrid(parent, plugin, context, model, viewMode) {
     bar.style.gridRow = String(segment.row);
     bar.title = `${segment.bar.task.text} ${segment.bar.startDate} -> ${segment.bar.endDate}`;
   }
+}
+function renderDayLoadMetric(parent, label, value, extraClass) {
+  const metric = parent.createDiv({ cls: `cb-day-load-summary ${extraClass}` });
+  metric.createSpan({ cls: "cb-day-load-label", text: label });
+  metric.createSpan({ cls: "cb-day-load-value", text: value });
 }
 function renderWeekdayHeader(parent, weekStartsOn) {
   const row = parent.createDiv({ cls: "cb-weekday-row" });
@@ -1429,12 +1520,12 @@ function renderRangeHint(parent, plugin, viewMode) {
     hint.setText("Point task mode: drag a point task onto a timeline day to schedule it. Right-click a task bar for settings.");
     return;
   }
-  const task = longRangeDraft ? plugin.calendarTasks.find((item) => item.id === longRangeDraft?.taskId) : void 0;
-  if (!task) {
+  const task2 = longRangeDraft ? plugin.calendarTasks.find((item) => item.id === longRangeDraft?.taskId) : void 0;
+  if (!task2) {
     hint.setText("Long task mode: click Set range on an unscheduled long task, then choose start and end dates on the timeline.");
     return;
   }
-  hint.setText(longRangeDraft?.startDate ? `Range: ${task.text}. Choose end date.` : `Range: ${task.text}. Choose start date.`);
+  hint.setText(longRangeDraft?.startDate ? `Range: ${task2.text}. Choose end date.` : `Range: ${task2.text}. Choose start date.`);
 }
 function buildLongTimelineRows(rows) {
   return rows.map((row) => ({
@@ -1446,7 +1537,6 @@ function buildLongTimelineRows(rows) {
     fullEndDate: row.fullEndDate,
     clippedStart: row.isClippedStart,
     clippedEnd: row.isClippedEnd,
-    overdue: row.isOverdue,
     status: row.status,
     childTasks: row.childTasks
   }));
@@ -1481,7 +1571,7 @@ function renderLongDatePicker(parent, plugin, monthDays, viewMode, rerender) {
 }
 function renderLongVerticalTask(parent, plugin, row) {
   const bar = parent.createDiv({ cls: `cb-long-vertical-bar ${priorityClass(row.task)}` });
-  bar.toggleClass("is-overdue", row.overdue);
+  bar.toggleClass("is-behind", row.status === "behind");
   bar.draggable = true;
   bar.addEventListener("dragstart", (event) => setDragTask(event, row.task.id));
   bar.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, row.task));
@@ -1504,6 +1594,10 @@ function renderLongTaskChildren(parent, plugin, childTasks) {
     return;
   const list = parent.createDiv({ cls: "cb-long-child-list" });
   for (const child of childTasks) {
+    if (isRecurringTask(child)) {
+      renderRecurringChildTask(list, child);
+      continue;
+    }
     const schedule = childTaskScheduleLabel(child);
     if (child.taskKind === "long" && schedule) {
       renderChildLongTaskCard(list, plugin, child, schedule);
@@ -1515,32 +1609,79 @@ function renderLongTaskChildren(parent, plugin, childTasks) {
       item.createSpan({ cls: "cb-long-child-time", text: schedule });
   }
 }
-function renderChildLongTaskCard(parent, plugin, task, schedule) {
-  const item = parent.createDiv({ cls: `cb-long-child-card ${priorityClass(task)}` });
+function renderRecurringChildTask(parent, task2) {
+  const item = parent.createDiv({ cls: "cb-long-child-item cb-long-child-recurring" });
+  const title = item.createDiv({ cls: "cb-long-child-recurring-title" });
+  title.createSpan({ cls: "cb-long-child-title", text: childTaskContentLabel(task2) });
+  title.createSpan({ cls: "cb-long-child-cycle", text: recurringCycleLabel(task2) });
+  item.createDiv({ cls: "cb-long-child-refresh", text: recurringRefreshLabel(task2) });
+}
+function renderChildLongTaskCard(parent, plugin, task2, schedule) {
+  const item = parent.createDiv({ cls: `cb-long-child-card ${priorityClass(task2)}` });
   item.draggable = true;
   item.addEventListener("dragstart", (event) => {
     event.stopPropagation();
-    setDragTask(event, task.id);
+    setDragTask(event, task2.id);
   });
   const header = item.createDiv({ cls: "cb-long-child-card-header" });
-  header.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
-  header.createSpan({ cls: "cb-long-child-card-title", text: childTaskContentLabel(task) });
+  header.addEventListener("click", () => void plugin.openTaskSourceNote(task2.id));
+  header.createSpan({ cls: "cb-long-child-card-title", text: childTaskContentLabel(task2) });
   header.createSpan({ cls: "cb-long-child-card-range", text: schedule });
 }
-function renderParentLongTaskChip(parent, task) {
-  if (!task.parentLongTaskText)
+function renderParentLongTaskChip(parent, task2) {
+  if (!task2.parentLongTaskText)
     return;
-  parent.createSpan({ cls: "cb-chip cb-parent-long-task-chip", text: `Parent: ${task.parentLongTaskText}` });
+  parent.createSpan({ cls: "cb-chip cb-parent-long-task-chip", text: `Parent: ${task2.parentLongTaskText}` });
 }
-function childTaskScheduleLabel(task) {
-  if (task.taskKind === "long" && task.spanStart && task.spanEnd)
-    return `${shortDate(task.spanStart)} - ${shortDate(task.spanEnd)}`;
-  if (task.scheduleDate)
-    return shortDate(task.scheduleDate);
+function childTaskScheduleLabel(task2) {
+  if (task2.taskKind === "long" && task2.spanStart && task2.spanEnd)
+    return `${shortDate(task2.spanStart)} - ${shortDate(task2.spanEnd)}`;
+  if (task2.scheduleDate)
+    return shortDate(task2.scheduleDate);
   return void 0;
 }
-function childTaskContentLabel(task) {
-  return cleanTaskContentText(task.rawLine) || task.text;
+function recurringCycleLabel(task2) {
+  const normalized = normalizedRecurrence(task2);
+  if (normalized === "every day")
+    return "\u6BCF\u5929";
+  if (normalized === "every week")
+    return "\u6BCF\u5468";
+  if (normalized === "every month")
+    return "\u6BCF\u6708";
+  if (normalized === "every year")
+    return "\u6BCF\u5E74";
+  return task2.recurrence?.trim() ?? "\u5FAA\u73AF";
+}
+function recurringRefreshLabel(task2) {
+  const start = task2.dates.start;
+  const normalized = normalizedRecurrence(task2);
+  if (!start)
+    return "\u5237\u65B0\uFF1A--";
+  if (normalized === "every day")
+    return "\u5237\u65B0\uFF1A\u6BCF\u5929";
+  if (normalized === "every week")
+    return `\u5237\u65B0\uFF1A${weekdayLabel(start)}`;
+  if (normalized === "every month")
+    return `\u5237\u65B0\uFF1A${Number.parseInt(start.slice(8, 10), 10)}\u65E5`;
+  if (normalized === "every year")
+    return `\u5237\u65B0\uFF1A${shortDate(start)}`;
+  return `\u5237\u65B0\uFF1A${shortDate(start)}`;
+}
+function normalizedRecurrence(task2) {
+  return task2.recurrence?.trim().toLowerCase().replace(/\s+/gu, " ");
+}
+function weekdayLabel(date) {
+  const parts = date.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+  if (!parts)
+    return shortDate(date);
+  const day = new Date(Number.parseInt(parts[1], 10), Number.parseInt(parts[2], 10) - 1, Number.parseInt(parts[3], 10)).getDay();
+  return ["\u5468\u65E5", "\u5468\u4E00", "\u5468\u4E8C", "\u5468\u4E09", "\u5468\u56DB", "\u5468\u4E94", "\u5468\u516D"][day];
+}
+function isRecurringTask(task2) {
+  return Boolean(task2.recurrence?.trim());
+}
+function childTaskContentLabel(task2) {
+  return cleanTaskContentText(task2.rawLine) || task2.text;
 }
 function setupTimelineDateTarget(target, plugin, date, viewMode, rerender) {
   if (viewMode === "long") {
@@ -1586,49 +1727,49 @@ function setupPointDateTarget(target, plugin, date) {
       await plugin.scheduleTaskDate(taskId, date);
   });
 }
-function openTaskMenu(event, plugin, task) {
+function openTaskMenu(event, plugin, task2) {
   event.preventDefault();
   closeTaskMenu();
   const menu = document.body.createDiv({ cls: "cb-task-context-menu" });
   menu.style.left = `${event.clientX}px`;
   menu.style.top = `${event.clientY}px`;
-  menu.createDiv({ cls: "cb-menu-title", text: task.text });
+  menu.createDiv({ cls: "cb-menu-title", text: task2.text });
   const priorityRow = menu.createDiv({ cls: "cb-menu-row" });
   priorityRow.createSpan({ text: "Priority" });
   const priority = priorityRow.createEl("select");
   for (const value of ["", "highest", "high", "medium", "low"])
     priority.createEl("option", { value, text: value || "None" });
-  priority.value = normalizeTaskPriority(task.priority) ?? "";
+  priority.value = normalizeTaskPriority(task2.priority) ?? "";
   const estimateRow = menu.createDiv({ cls: "cb-menu-row" });
   estimateRow.createSpan({ text: "Estimate" });
   const estimate = estimateRow.createEl("input");
   estimate.type = "text";
   estimate.placeholder = "45m";
-  estimate.value = task.estimateMinutes ? `${task.estimateMinutes}m` : "";
+  estimate.value = task2.estimateMinutes ? `${task2.estimateMinutes}m` : "";
   const progressRow = menu.createDiv({ cls: "cb-menu-row" });
   progressRow.createSpan({ text: "Progress" });
   const progress = progressRow.createEl("input");
   progress.type = "number";
   progress.min = "0";
   progress.max = "100";
-  progress.value = String(task.progressPercent ?? 0);
+  progress.value = String(task2.progressPercent ?? 0);
   const rangeRow = menu.createDiv({ cls: "cb-menu-row cb-menu-range" });
   rangeRow.createSpan({ text: "Range" });
   const start = rangeRow.createEl("input");
   start.type = "date";
-  start.value = task.spanStart ?? "";
+  start.value = task2.spanStart ?? "";
   const end = rangeRow.createEl("input");
   end.type = "date";
-  end.value = task.spanEnd ?? "";
+  end.value = task2.spanEnd ?? "";
   const actions = menu.createDiv({ cls: "cb-menu-actions" });
-  actions.createEl("button", { text: "Apply" }).addEventListener("click", () => void applyTaskMenu(plugin, task, {
+  actions.createEl("button", { text: "Apply" }).addEventListener("click", () => void applyTaskMenu(plugin, task2, {
     priority: priority.value,
     estimate: estimate.value,
     progress: progress.value,
     startDate: start.value,
     endDate: end.value
   }));
-  actions.createEl("button", { text: "Move to unscheduled" }).addEventListener("click", () => void moveTaskToUnscheduled(plugin, task));
+  actions.createEl("button", { text: "Move to unscheduled" }).addEventListener("click", () => void moveTaskToUnscheduled(plugin, task2));
   actions.createEl("button", { text: "Close" }).addEventListener("click", closeTaskMenu);
   setTimeout(() => {
     const closeOnOutsideClick = (click) => {
@@ -1640,33 +1781,33 @@ function openTaskMenu(event, plugin, task) {
     document.addEventListener("mousedown", closeOnOutsideClick);
   }, 0);
 }
-async function applyTaskMenu(plugin, task, values) {
+async function applyTaskMenu(plugin, task2, values) {
   try {
-    await plugin.setTaskPriority(task.id, values.priority);
+    await plugin.setTaskPriority(task2.id, values.priority);
     const minutes = parseDurationToMinutes(values.estimate);
     if (values.estimate.trim() && minutes === void 0) {
       new Notice("Invalid estimate. Use 45m, 1h, 1h30m, or minutes.");
       return;
     }
     if (minutes !== void 0)
-      await plugin.setTaskEstimate(task.id, minutes);
+      await plugin.setTaskEstimate(task2.id, minutes);
     const progress = Number.parseFloat(values.progress.replace("%", "").trim());
     if (Number.isFinite(progress))
-      await plugin.setTaskProgress(task.id, progress);
+      await plugin.setTaskProgress(task2.id, progress);
     if (values.startDate && values.endDate)
-      await plugin.scheduleTaskSpan(task.id, values.startDate, values.endDate);
+      await plugin.scheduleTaskSpan(task2.id, values.startDate, values.endDate);
     closeTaskMenu();
   } catch (error) {
-    new Notice(`Failed to update task ${task.filePath}:${task.lineNumber}`);
+    new Notice(`Failed to update task ${task2.filePath}:${task2.lineNumber}`);
     console.error(error);
   }
 }
-async function moveTaskToUnscheduled(plugin, task) {
+async function moveTaskToUnscheduled(plugin, task2) {
   try {
-    await plugin.unscheduleTask(task.id);
+    await plugin.unscheduleTask(task2.id);
     closeTaskMenu();
   } catch (error) {
-    new Notice(`Failed to unschedule task ${task.filePath}:${task.lineNumber}`);
+    new Notice(`Failed to unschedule task ${task2.filePath}:${task2.lineNumber}`);
     console.error(error);
   }
 }
@@ -1739,11 +1880,11 @@ function getSourceGroupState(plugin) {
   plugin.data.ui.sourceTaskGroups = { order: [], collapsed: {}, sortMode: "manual" };
   return plugin.data.ui.sourceTaskGroups;
 }
-function priorityLabel(task) {
-  return normalizeTaskPriority(task.priority) ?? "None";
+function priorityLabel(task2) {
+  return normalizeTaskPriority(task2.priority) ?? "None";
 }
-function priorityClass(task) {
-  const normalized = normalizeTaskPriority(task.priority);
+function priorityClass(task2) {
+  const normalized = normalizeTaskPriority(task2.priority);
   return normalized ? `is-priority-${normalized.toLowerCase()}` : "is-priority-none";
 }
 function formatMinutes(minutes) {
@@ -1755,6 +1896,13 @@ function formatMinutes(minutes) {
 }
 function shortDate(date) {
   return date ? date.slice(5) : "--";
+}
+function isScheduledDayFilePath(filePath, scheduledDayFolder) {
+  const folder = scheduledDayFolder.trim().replace(/\\/gu, "/").replace(/\/+$/u, "") || "Calendar/Scheduled";
+  const normalized = filePath.replace(/\\/gu, "/");
+  if (!normalized.startsWith(`${folder}/`))
+    return false;
+  return /^\d{8}\.md$/u.test(normalized.slice(folder.length + 1));
 }
 
 // src/utils/pathSettings.ts
@@ -1936,8 +2084,8 @@ function renderSourceGroup2(parent, plugin, group) {
   header.addEventListener("click", () => void toggleSourceGroup2(plugin, group.sourceFilePath));
   if (group.collapsed)
     return;
-  for (const task of group.tasks)
-    renderPoolTask(section, plugin, task);
+  for (const task2 of group.tasks)
+    renderPoolTask(section, plugin, task2);
 }
 function renderToolbar2(parent, context, plugin) {
   const toolbar = parent.createDiv({ cls: "cb-toolbar" });
@@ -1957,15 +2105,21 @@ function renderDayRow(parent, plugin, row) {
   setupDropTarget(item, plugin, row.day.date);
   const header = item.createDiv({ cls: "cb-week-day-label" });
   header.createDiv({ cls: "cb-week-date", text: row.day.date });
-  header.createDiv({ cls: "cb-muted", text: `${row.tasks.length} tasks | ${formatMinutes2(row.totalMinutes)}` });
+  const summary = header.createDiv({ cls: "cb-week-day-summary" });
+  renderWeekSummaryMetric(summary, "Task", String(row.tasks.length));
+  renderWeekSummaryMetric(summary, "Repeat", String(row.recurringTaskCount));
+  renderWeekSummaryMetric(summary, "Total", formatMinutes2(row.totalMinutes), "cb-week-day-total");
   const taskPane = item.createDiv({ cls: "cb-week-pressure-pane cb-task-pressure" });
   taskPane.createDiv({ cls: "cb-pane-title", text: `Task pressure ${formatMinutes2(row.taskMinutes)}` });
-  if (row.tasks.length === 0) {
+  if (row.recurringTaskCount > 0) {
+    taskPane.createDiv({ cls: "cb-recurring-compact-summary", text: `${row.recurringTaskCount} repeat / ${formatMinutes2(row.recurringTaskMinutes)}` });
+  }
+  if (row.tasks.length === 0 && row.recurringTaskCount === 0) {
     taskPane.createDiv({ cls: "cb-empty", text: "No tasks" });
-  } else {
+  } else if (row.tasks.length > 0) {
     const taskList = taskPane.createDiv({ cls: "cb-week-task-list" });
-    for (const task of row.tasks)
-      renderScheduledTaskName(taskList, plugin, task);
+    for (const task2 of row.tasks)
+      renderScheduledTaskName(taskList, plugin, task2);
   }
   const reviewPane = item.createDiv({ cls: "cb-week-pressure-pane cb-review-pressure-pane" });
   reviewPane.createDiv({ cls: "cb-pane-title", text: `Review pressure ${formatMinutes2(row.review.minutes)}` });
@@ -1974,60 +2128,65 @@ function renderDayRow(parent, plugin, row) {
     text: row.review.count > 0 ? `${row.review.count} reviews | ${row.review.chars} chars` : "No reviews"
   });
 }
-function renderPoolTask(parent, plugin, task) {
-  const card = parent.createDiv({ cls: `cb-task-card ${priorityClass2(task)}` });
+function renderWeekSummaryMetric(parent, label, value, extraClass = "") {
+  const metric = parent.createDiv({ cls: `cb-week-day-metric ${extraClass}`.trim() });
+  metric.createDiv({ cls: "cb-week-day-metric-label", text: label });
+  metric.createDiv({ cls: "cb-week-day-metric-value", text: value });
+}
+function renderPoolTask(parent, plugin, task2) {
+  const card = parent.createDiv({ cls: `cb-task-card ${priorityClass2(task2)}` });
   card.draggable = true;
-  card.addEventListener("dragstart", (event) => setDragTask2(event, task.id));
-  renderTaskTitle2(card, plugin, task);
+  card.addEventListener("dragstart", (event) => setDragTask2(event, task2.id));
+  renderTaskTitle2(card, plugin, task2);
   const meta = card.createDiv({ cls: "cb-meta-row" });
-  meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel2(task) });
-  meta.createSpan({ cls: "cb-chip", text: task.estimateMinutes ? formatMinutes2(task.estimateMinutes) : "no estimate" });
-  renderParentLongTaskChip2(meta, task);
-  if (task.unscheduledReason)
-    meta.createSpan({ cls: "cb-chip cb-chip-info", text: task.unscheduledReason });
-  if (task.filePath)
-    card.createDiv({ cls: "cb-muted", text: task.filePath });
+  meta.createSpan({ cls: "cb-chip cb-priority-chip", text: priorityLabel2(task2) });
+  meta.createSpan({ cls: "cb-chip", text: task2.estimateMinutes ? formatMinutes2(task2.estimateMinutes) : "no estimate" });
+  renderParentLongTaskChip2(meta, task2);
+  if (task2.unscheduledReason)
+    meta.createSpan({ cls: "cb-chip cb-chip-info", text: task2.unscheduledReason });
+  if (task2.filePath)
+    card.createDiv({ cls: "cb-muted", text: task2.filePath });
   const actions = card.createDiv({ cls: "cb-task-actions cb-inline-actions" });
-  renderEstimateControl(actions, plugin, task);
+  renderEstimateControl(actions, plugin, task2);
 }
-function renderParentLongTaskChip2(parent, task) {
-  if (!task.parentLongTaskText)
+function renderParentLongTaskChip2(parent, task2) {
+  if (!task2.parentLongTaskText)
     return;
-  parent.createSpan({ cls: "cb-chip cb-parent-long-task-chip", text: `Parent: ${task.parentLongTaskText}` });
+  parent.createSpan({ cls: "cb-chip cb-parent-long-task-chip", text: `Parent: ${task2.parentLongTaskText}` });
 }
-function renderScheduledTaskName(parent, plugin, task) {
-  const row = parent.createDiv({ cls: `cb-week-task-name ${priorityClass2(task)}` });
+function renderScheduledTaskName(parent, plugin, task2) {
+  const row = parent.createDiv({ cls: `cb-week-task-name ${priorityClass2(task2)}` });
   row.draggable = true;
-  row.addEventListener("dragstart", (event) => setDragTask2(event, task.id));
-  row.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
-  row.createSpan({ cls: "cb-week-priority cb-priority-marker", text: priorityLabel2(task) });
-  row.createSpan({ cls: "cb-week-task-content", text: taskContentLabel(task) });
+  row.addEventListener("dragstart", (event) => setDragTask2(event, task2.id));
+  row.addEventListener("click", () => void plugin.openTaskSourceNote(task2.id));
+  row.createSpan({ cls: "cb-week-priority cb-priority-marker", text: shortPriorityLabel(task2) });
+  row.createSpan({ cls: "cb-week-task-content", text: taskContentLabel(task2) });
 }
-function renderTaskTitle2(parent, plugin, task) {
+function renderTaskTitle2(parent, plugin, task2) {
   const row = parent.createDiv({ cls: "cb-task-title-row" });
-  row.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
-  row.createSpan({ cls: "cb-priority-marker", text: priorityLabel2(task) });
-  row.createSpan({ cls: "cb-task-title", text: task.text });
+  row.addEventListener("click", () => void plugin.openTaskSourceNote(task2.id));
+  row.createSpan({ cls: "cb-priority-marker", text: priorityLabel2(task2) });
+  row.createSpan({ cls: "cb-task-title", text: task2.text });
 }
-function renderEstimateControl(parent, plugin, task) {
+function renderEstimateControl(parent, plugin, task2) {
   const group = parent.createDiv({ cls: "cb-mini-control" });
   const input = group.createEl("input");
   input.type = "text";
-  input.value = task.estimateMinutes ? `${task.estimateMinutes}m` : "";
+  input.value = task2.estimateMinutes ? `${task2.estimateMinutes}m` : "";
   input.placeholder = "45m";
   input.title = "Estimate: 45m, 1h, 1h30m, or minutes";
-  group.createEl("button", { text: "Estimate" }).addEventListener("click", () => void submitEstimate(plugin, task, input.value));
+  group.createEl("button", { text: "Estimate" }).addEventListener("click", () => void submitEstimate(plugin, task2, input.value));
 }
-async function submitEstimate(plugin, task, raw) {
+async function submitEstimate(plugin, task2, raw) {
   const minutes = parseDurationToMinutes(raw);
   if (minutes === void 0 || minutes < 0) {
     new Notice("Invalid estimate. Use 45m, 1h, 1h30m, or minutes.");
     return;
   }
   try {
-    await plugin.setTaskEstimate(task.id, minutes);
+    await plugin.setTaskEstimate(task2.id, minutes);
   } catch (error) {
-    new Notice(`Failed to set estimate for ${task.filePath}:${task.lineNumber}`);
+    new Notice(`Failed to set estimate for ${task2.filePath}:${task2.lineNumber}`);
     console.error(error);
   }
 }
@@ -2086,15 +2245,23 @@ function getSourceGroupState2(plugin) {
   plugin.data.ui.sourceTaskGroups = { order: [], collapsed: {}, sortMode: "manual" };
   return plugin.data.ui.sourceTaskGroups;
 }
-function priorityLabel2(task) {
-  return normalizeTaskPriority(task.priority) ?? "None";
+function priorityLabel2(task2) {
+  return normalizeTaskPriority(task2.priority) ?? "None";
 }
-function priorityClass2(task) {
-  const normalized = normalizeTaskPriority(task.priority);
+function shortPriorityLabel(task2) {
+  const priority = normalizeTaskPriority(task2.priority);
+  if (priority === "highest")
+    return "hi+";
+  if (priority === "medium")
+    return "med";
+  return priority ?? "None";
+}
+function priorityClass2(task2) {
+  const normalized = normalizeTaskPriority(task2.priority);
   return normalized ? `is-priority-${normalized.toLowerCase()}` : "is-priority-none";
 }
-function taskContentLabel(task) {
-  return cleanTaskContentText(task.rawLine) || task.text;
+function taskContentLabel(task2) {
+  return cleanTaskContentText(task2.rawLine) || task2.text;
 }
 function formatMinutes2(minutes) {
   if (minutes >= 60 && minutes % 60 === 0)
@@ -2326,9 +2493,20 @@ var PersonalSchedulerPlugin = class extends Plugin {
     const target = this.resolveTaskRef(taskId);
     if (!target)
       return;
-    const task = this.calendarTasks.find((item) => item.id === taskId);
-    if (task?.spanStart && task.spanEnd) {
+    const task2 = this.calendarTasks.find((item) => item.id === taskId);
+    if (task2?.spanStart && task2.spanEnd) {
       new Notice("Tasks with a long range must be edited in long task mode.");
+      return;
+    }
+    if (task2?.parentLongTaskId) {
+      await this.taskDateWriter.setPointSchedule(
+        target.file,
+        target.lineNumber,
+        scheduledDate,
+        this.data.settings.defaultUnestimatedTaskMinutes,
+        todayString()
+      );
+      await this.rescanTasks();
       return;
     }
     await this.taskDateWriter.movePointTaskToScheduledDay(
@@ -2345,8 +2523,8 @@ var PersonalSchedulerPlugin = class extends Plugin {
     const target = this.resolveTaskRef(taskId);
     if (!target)
       return;
-    const task = this.calendarTasks.find((item) => item.id === taskId);
-    if (isScheduledPointTask(task)) {
+    const task2 = this.calendarTasks.find((item) => item.id === taskId);
+    if (isScheduledPointTask(task2)) {
       new Notice("Scheduled point tasks cannot be planned as long tasks.");
       return;
     }
@@ -2597,3 +2775,53 @@ function mergeCalendarData(raw) {
     state: { active: true, eState: { line: 11 } }
   }]);
 });
+(0, import_node_test.test)("scheduling a child of a long task keeps the child in its source note", async () => {
+  const PluginCtor = PersonalSchedulerPlugin;
+  const plugin = new PluginCtor();
+  const file = new TFile();
+  file.path = "Plans.md";
+  const calls = [];
+  plugin.app = {
+    vault: {
+      getAbstractFileByPath: (path) => path === "Plans.md" ? file : null
+    }
+  };
+  plugin.data.settings.scheduledDayFolder = "Calendar/Scheduled";
+  plugin.calendarTasks = [task("Plans.md:1", {
+    lineNumber: 1,
+    parentLongTaskId: "Plans.md:0",
+    parentLongTaskText: "Parent long"
+  })];
+  plugin.taskDateWriter = {
+    setPointSchedule: async (targetFile, lineNumber, scheduledDate) => {
+      import_node_assert.strict.equal(targetFile, file);
+      calls.push(`set:${lineNumber}:${scheduledDate}`);
+    },
+    movePointTaskToScheduledDay: async () => {
+      calls.push("move");
+    }
+  };
+  plugin.rescanTasks = async () => {
+    calls.push("rescan");
+  };
+  await plugin.scheduleTaskDate("Plans.md:1", "2026-06-20");
+  import_node_assert.strict.deepEqual(calls, ["set:1:2026-06-20", "rescan"]);
+});
+function task(id, overrides = {}) {
+  return {
+    id,
+    text: "Child point",
+    filePath: "Plans.md",
+    lineNumber: 1,
+    rawLine: "  - [ ] Child point",
+    completed: false,
+    metadata: {},
+    dates: {},
+    taskKind: "point",
+    indentLevel: 2,
+    progressPercent: 0,
+    dateSource: "none",
+    triggerType: "inline",
+    ...overrides
+  };
+}

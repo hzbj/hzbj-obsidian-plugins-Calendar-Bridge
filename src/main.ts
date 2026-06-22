@@ -136,6 +136,18 @@ export default class PersonalSchedulerPlugin extends Plugin {
       new Notice("Tasks with a long range must be edited in long task mode.");
       return;
     }
+    if (task?.parentLongTaskId) {
+      // Long-task children stay nested under their parent; scheduling only updates their date fields.
+      await this.taskDateWriter.setPointSchedule(
+        target.file,
+        target.lineNumber,
+        scheduledDate,
+        this.data.settings.defaultUnestimatedTaskMinutes,
+        todayString()
+      );
+      await this.rescanTasks();
+      return;
+    }
     await this.taskDateWriter.movePointTaskToScheduledDay(
       target.file,
       target.lineNumber,

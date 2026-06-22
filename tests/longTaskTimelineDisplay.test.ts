@@ -20,7 +20,6 @@ function row(id: string, visibleStartDate: string, visibleEndDate: string): Long
     endDay: Number.parseInt(visibleEndDate.slice(8, 10), 10),
     isClippedStart: false,
     isClippedEnd: false,
-    isOverdue: false,
     daysLeft: 0,
     progressPercent: 0,
     status: "on-track"

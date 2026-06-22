@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { Notice, TFile } from "obsidian";
 import PersonalSchedulerPlugin from "../src/main";
 import { VIEW_TYPE_PERSONAL_SYSTEM } from "../src/models/constants";
+import type { CalendarTask } from "../src/models/types";
 
 test("plugin registration survives a startup scan failure", async () => {
   const notices = (Notice as unknown as { messages: string[] }).messages;
@@ -175,3 +176,57 @@ test("opening a task source jumps to the task note line", async () => {
     state: { active: true, eState: { line: 11 } }
   }]);
 });
+
+test("scheduling a child of a long task keeps the child in its source note", async () => {
+  const PluginCtor = PersonalSchedulerPlugin as unknown as { new (): PersonalSchedulerPlugin };
+  const plugin = new PluginCtor();
+  const file = new TFile();
+  (file as unknown as { path: string }).path = "Plans.md";
+  const calls: string[] = [];
+  (plugin as any).app = {
+    vault: {
+      getAbstractFileByPath: (path: string) => path === "Plans.md" ? file : null
+    }
+  };
+  plugin.data.settings.scheduledDayFolder = "Calendar/Scheduled";
+  plugin.calendarTasks = [task("Plans.md:1", {
+    lineNumber: 1,
+    parentLongTaskId: "Plans.md:0",
+    parentLongTaskText: "Parent long"
+  })];
+  (plugin as any).taskDateWriter = {
+    setPointSchedule: async (targetFile: TFile, lineNumber: number, scheduledDate: string) => {
+      assert.equal(targetFile, file);
+      calls.push(`set:${lineNumber}:${scheduledDate}`);
+    },
+    movePointTaskToScheduledDay: async () => {
+      calls.push("move");
+    }
+  };
+  (plugin as any).rescanTasks = async () => {
+    calls.push("rescan");
+  };
+
+  await plugin.scheduleTaskDate("Plans.md:1", "2026-06-20");
+
+  assert.deepEqual(calls, ["set:1:2026-06-20", "rescan"]);
+});
+
+function task(id: string, overrides: Partial<CalendarTask> = {}): CalendarTask {
+  return {
+    id,
+    text: "Child point",
+    filePath: "Plans.md",
+    lineNumber: 1,
+    rawLine: "  - [ ] Child point",
+    completed: false,
+    metadata: {},
+    dates: {},
+    taskKind: "point",
+    indentLevel: 2,
+    progressPercent: 0,
+    dateSource: "none",
+    triggerType: "inline",
+    ...overrides
+  };
+}

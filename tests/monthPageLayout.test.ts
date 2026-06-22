@@ -25,6 +25,40 @@ test("renders long-task month ranges as vertical timeline bars", () => {
   assert.doesNotMatch(timeline, /cb-timeline-row-track|cb-timeline-bar/);
 });
 
+test("renders month recurring task counts separately from concrete task counts", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+  const grid = source.slice(source.indexOf("function renderPointMonthGrid"), source.indexOf("function renderWeekdayHeader"));
+  const css = readFileSync("styles.css", "utf8");
+
+  assert.match(grid, /recurringTaskCount/);
+  assert.match(grid, /`\$\{load\.taskCount\}\/\$\{load\.recurringTaskCount\}`/);
+  assert.match(grid, /cb-day-load-breakdown/);
+  assert.match(grid, /cb-day-load-task/);
+  assert.match(grid, /cb-day-load-repeat/);
+  assert.match(grid, /renderDayLoadMetric/);
+  assert.match(grid, /cb-day-load-label/);
+  assert.match(grid, /cb-day-load-value/);
+  assert.match(grid, /cb-day-load-summary/);
+  assert.match(grid, /recurringTaskMinutes/);
+  assert.doesNotMatch(grid, /cb-recurring-task-count/);
+  assert.doesNotMatch(css, /cb-recurring-task-count/);
+  assert.match(css, /\.cb-day-load-breakdown/);
+  assert.match(css, /\.cb-day-load-repeat/);
+  assert.match(css, /\.cb-day-load-label/);
+  assert.match(css, /\.cb-day-load-value/);
+});
+
+test("filters scheduled daily files only for month long-task mode", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+  const render = source.slice(source.indexOf("export function renderMonthPage"), source.indexOf("function renderGroupedPool"));
+
+  assert.match(render, /const viewMode: MonthTaskViewMode = plugin\.data\.ui\.monthTaskViewMode \?\? "point"/);
+  assert.match(render, /viewMode === "long"[\s\S]*isScheduledDayFilePath\(task\.filePath, plugin\.data\.settings\.scheduledDayFolder\)/);
+  assert.match(render, /: plugin\.calendarTasks/);
+  assert.match(source, /export function isScheduledDayFilePath/);
+  assert.match(source, /\^\\d\{8\}\\\.md\$/);
+});
+
 test("renders vertical long-task timeline with non-overlapping lanes", () => {
   const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
   const timeline = source.slice(source.indexOf("function renderLongVerticalTimeline"), source.indexOf("function setupTimelineDateTarget"));
@@ -36,6 +70,17 @@ test("renders vertical long-task timeline with non-overlapping lanes", () => {
   assert.match(timeline, /--cb-long-lanes/);
   assert.match(source, /gridRow = `\$\{row\.startDay\} \/ \$\{row\.endDay \+ 1\}`/);
   assert.match(source, /gridColumn = String\(row\.lane\)/);
+});
+
+test("uses the long-task red frame for behind pace status", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+  const css = readFileSync("styles.css", "utf8");
+  const task = source.slice(source.indexOf("function renderLongVerticalTask"), source.indexOf("function renderLongTaskChildren"));
+
+  assert.match(task, /toggleClass\("is-behind", row\.status === "behind"\)/);
+  assert.doesNotMatch(task, /toggleClass\("is-overdue"/);
+  assert.match(css, /\.cb-long-vertical-bar\.is-behind\s*\{/);
+  assert.doesNotMatch(css, /\.cb-long-vertical-bar\.is-overdue\s*\{/);
 });
 
 test("lets long-task month timelines collapse and expand past days", () => {
@@ -71,6 +116,24 @@ test("renders parent long-task labels in point pools and child tasks inside long
   assert.match(source, /function childTaskScheduleLabel/);
 });
 
+test("renders recurring long-task children as compact child rows", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+  const css = readFileSync("styles.css", "utf8");
+  const children = source.slice(source.indexOf("function renderLongTaskChildren"), source.indexOf("function renderChildLongTaskCard"));
+
+  assert.match(children, /isRecurringTask\(child\)/);
+  assert.match(children, /renderRecurringChildTask\(list, child\)/);
+  assert.match(source, /function recurringCycleLabel/);
+  assert.match(source, /function recurringRefreshLabel/);
+  assert.match(source, /function weekdayLabel/);
+  assert.match(source, /cb-long-child-cycle/);
+  assert.match(source, /cb-long-child-refresh/);
+  assert.match(source, /刷新：/);
+  assert.match(css, /\.cb-long-child-recurring/);
+  assert.match(css, /\.cb-long-child-cycle/);
+  assert.match(css, /\.cb-long-child-refresh/);
+});
+
 test("renders scheduled child long tasks as draggable cards inside parent bars", () => {
   const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
   const css = readFileSync("styles.css", "utf8");
@@ -99,6 +162,13 @@ test("keeps child long task titles readable beside range labels", () => {
   assert.match(css, /\.cb-long-child-card-title\s*\{[^}]*white-space:\s*normal/s);
   assert.match(css, /\.cb-long-child-card-title\s*\{[^}]*overflow-wrap:\s*anywhere/s);
   assert.match(css, /\.cb-long-child-card-range\s*\{[^}]*justify-self:\s*start/s);
+});
+
+test("lets compressed long-task bars scroll vertically", () => {
+  const css = readFileSync("styles.css", "utf8");
+  const bar = css.slice(css.indexOf(".cb-long-vertical-bar {"), css.indexOf(".cb-long-vertical-bar.is-behind {"));
+
+  assert.match(bar, /overflow-y:\s*auto/);
 });
 
 test("opens the source note when month task titles are clicked", () => {

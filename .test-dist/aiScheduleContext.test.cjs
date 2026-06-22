@@ -55,16 +55,19 @@ function normalizeTaskPriority(raw) {
 }
 
 // src/services/CalendarViewModel.ts
-function buildMonthViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {}, defaultUnestimatedTaskMinutes = 30, sourceGroupState = {}) {
+function buildMonthViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {}, defaultUnestimatedTaskMinutes = 30, sourceGroupState = {}, paceDate = todayString()) {
   const days = monthGridDates(anchorDate, weekStartsOn);
-  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "month", sourceGroupState);
+  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "month", sourceGroupState, paceDate);
 }
-function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}) {
+function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}, paceDate) {
   const activeTasks = tasks.filter((task2) => !task2.completed);
-  const loadTasks = mode === "month" ? tasks : activeTasks;
-  const pointTasks = activeTasks.filter((task2) => task2.taskKind !== "long");
+  const activeTasksById = new Map(activeTasks.map((task2) => [task2.id, task2]));
+  const recurringLoadTasks = activeTasks.filter(isRecurringLoadTask);
+  const concreteActiveTasks = activeTasks.filter((task2) => !isRecurringLoadTask(task2));
+  const loadTasks = (mode === "month" ? tasks : activeTasks).filter((task2) => !isRecurringLoadTask(task2));
+  const pointTasks = concreteActiveTasks.filter((task2) => task2.taskKind !== "long");
   const pointLoadTasks = loadTasks.filter((task2) => task2.taskKind !== "long");
-  const longTasks = activeTasks.filter((task2) => task2.taskKind === "long");
+  const longTasks = concreteActiveTasks.filter((task2) => task2.taskKind === "long");
   const topLevelLongTasks = longTasks.filter((task2) => !task2.parentLongTaskId);
   const visibleDates = new Set(days.map((day) => day.date));
   const tasksByDate = {};
@@ -76,6 +79,8 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
       date: day.date,
       taskCount: 0,
       taskMinutes: 0,
+      recurringTaskCount: 0,
+      recurringTaskMinutes: 0,
       reviewCount: review.count,
       reviewMinutes: review.minutes,
       heatScore: review.minutes
@@ -88,14 +93,17 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
       tasksByDate[date].push(task2);
       dayLoads[date].taskCount += 1;
       dayLoads[date].taskMinutes += task2.estimateMinutes ?? defaultUnestimatedTaskMinutes;
-      dayLoads[date].heatScore = dayLoads[date].taskMinutes + dayLoads[date].reviewMinutes;
     }
+  }
+  addRecurringTaskLoads(days, dayLoads, recurringLoadTasks, activeTasksById, defaultUnestimatedTaskMinutes);
+  for (const load of Object.values(dayLoads)) {
+    load.heatScore = load.taskMinutes + load.recurringTaskMinutes + load.reviewMinutes;
   }
   const overdueTasks = pointTasks.flatMap((task2) => {
     const reason = getOverdueReason(task2, todayStringFromAnchor(anchorDate));
     return reason ? [{ ...task2, overdueReason: reason }] : [];
   });
-  const unifiedUnscheduledTasks = activeTasks.flatMap((task2) => {
+  const unifiedUnscheduledTasks = concreteActiveTasks.flatMap((task2) => {
     const reason = getUnifiedUnscheduledReason(task2);
     return reason ? [{ ...task2, unscheduledReason: reason }] : [];
   });
@@ -111,13 +119,12 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
     overdueTasks,
     unifiedUnscheduledTasks,
     dayLoads,
-    spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
+    spanBars: mode === "month" ? buildSpanBars(days, concreteActiveTasks) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, paceDate) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) : [],
-    longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
-    longUnscheduledTasks: longTasks.filter((task2) => !task2.spanStart || !task2.spanEnd),
-    longOverdueTasks: longTasks.filter((task2) => isLongTaskOverdue(task2, todayStringFromAnchor(anchorDate)))
+    longTaskProgress: buildLongTaskProgress(longTasks, paceDate),
+    longUnscheduledTasks: longTasks.filter((task2) => !task2.spanStart || !task2.spanEnd)
   };
 }
 function buildChildTasksByLongTaskId(tasks) {
@@ -225,7 +232,7 @@ function buildLongTaskProgress(tasks, today) {
       progressPercent,
       dailyProgressPressure,
       dailyEstimatedMinutes,
-      status: progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track"
+      status: longTaskPaceStatus(progressPercent, expectedProgressPercent)
     };
   });
 }
@@ -255,6 +262,7 @@ function buildLongTaskTimelineRows(days, tasks, childTasksByLongTaskId, today) {
     const totalDays = Math.max(1, diffDays(fullStartDate, fullEndDate));
     const daysElapsed = Math.min(totalDays, Math.max(0, diffDays(fullStartDate, today)));
     const expectedProgressPercent = Math.min(100, Math.round(daysElapsed / totalDays * 100));
+    const overdue = isLongTaskOverdue(task2, today);
     return {
       task: task2,
       childTasks: childTasksByLongTaskId.get(task2.id) ?? [],
@@ -266,12 +274,14 @@ function buildLongTaskTimelineRows(days, tasks, childTasksByLongTaskId, today) {
       endDay: Number.parseInt(visibleEndDate.slice(8, 10), 10),
       isClippedStart: fullStartDate < first,
       isClippedEnd: fullEndDate > last,
-      isOverdue: isLongTaskOverdue(task2, today),
       daysLeft: Math.max(0, diffDays(today, fullEndDate)),
       progressPercent,
-      status: progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track"
+      status: overdue ? "behind" : longTaskPaceStatus(progressPercent, expectedProgressPercent)
     };
   });
+}
+function longTaskPaceStatus(progressPercent, expectedProgressPercent) {
+  return progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track";
 }
 function buildSpanBars(days, tasks) {
   const first = days[0]?.date;
@@ -322,9 +332,11 @@ function buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) {
     return {
       day,
       tasks: tasksByDate[day.date] ?? [],
-      taskMinutes: dayLoads[day.date]?.taskMinutes ?? 0,
+      recurringTaskCount: dayLoads[day.date]?.recurringTaskCount ?? 0,
+      recurringTaskMinutes: dayLoads[day.date]?.recurringTaskMinutes ?? 0,
+      taskMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + (dayLoads[day.date]?.recurringTaskMinutes ?? 0),
       review,
-      totalMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + review.minutes
+      totalMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + (dayLoads[day.date]?.recurringTaskMinutes ?? 0) + review.minutes
     };
   });
 }
@@ -376,6 +388,75 @@ function getUnifiedUnscheduledReason(task2) {
 function isRecurring(task2) {
   return Boolean(task2.recurrence?.trim()) || /\brecurr/i.test(task2.rawLine) || /🔁/u.test(task2.rawLine);
 }
+function isRecurringLoadTask(task2) {
+  return recurringFrequency(task2) !== void 0 && Boolean(task2.dates.start);
+}
+function recurringFrequency(task2) {
+  const normalized = task2.recurrence?.trim().toLowerCase().replace(/\s+/gu, " ");
+  if (normalized === "every day")
+    return "day";
+  if (normalized === "every week")
+    return "week";
+  if (normalized === "every month")
+    return "month";
+  if (normalized === "every year")
+    return "year";
+  return void 0;
+}
+function addRecurringTaskLoads(days, dayLoads, tasks, tasksById, defaultUnestimatedTaskMinutes) {
+  for (const task2 of tasks) {
+    const frequency = recurringFrequency(task2);
+    const startDate = task2.dates.start;
+    if (!frequency || !startDate)
+      continue;
+    const endDate = recurringEndDate(task2, tasksById);
+    if (endDate && startDate > endDate)
+      continue;
+    for (const day of days) {
+      if (day.date < startDate)
+        continue;
+      if (endDate && day.date > endDate)
+        continue;
+      if (!recursOnDate(startDate, day.date, frequency))
+        continue;
+      const load = dayLoads[day.date];
+      load.recurringTaskCount += 1;
+      load.recurringTaskMinutes += task2.estimateMinutes ?? defaultUnestimatedTaskMinutes;
+    }
+  }
+}
+function recurringEndDate(task2, tasksById) {
+  if (task2.dates.scheduled)
+    return task2.dates.scheduled;
+  const parent = task2.parentLongTaskId ? tasksById.get(task2.parentLongTaskId) : void 0;
+  return parent?.spanEnd ?? parent?.dates.scheduled;
+}
+function recursOnDate(startDate, date, frequency) {
+  if (frequency === "day")
+    return true;
+  const start = parseDateParts(startDate);
+  const current = parseDateParts(date);
+  if (!start || !current)
+    return false;
+  if (frequency === "week")
+    return dayOfWeek(startDate) === dayOfWeek(date);
+  if (frequency === "month")
+    return current.day === start.day;
+  return current.month === start.month && current.day === start.day;
+}
+function parseDateParts(date) {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+  if (!match)
+    return void 0;
+  return {
+    year: Number.parseInt(match[1], 10),
+    month: Number.parseInt(match[2], 10),
+    day: Number.parseInt(match[3], 10)
+  };
+}
+function dayOfWeek(date) {
+  return (/* @__PURE__ */ new Date(`${date}T00:00:00`)).getDay();
+}
 function todayStringFromAnchor(anchorDate) {
   return anchorDate || todayString();
 }
@@ -395,7 +476,9 @@ function buildAiScheduleContext(input) {
     input.tasks,
     input.settings.weekStartsOn,
     input.reviewPressure,
-    input.settings.defaultUnestimatedTaskMinutes
+    input.settings.defaultUnestimatedTaskMinutes,
+    {},
+    input.anchorDate
   );
   return {
     schemaVersion: 1,

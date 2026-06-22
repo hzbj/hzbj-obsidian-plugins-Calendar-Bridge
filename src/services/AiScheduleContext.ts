@@ -73,7 +73,9 @@ export function buildAiScheduleContext(input: AiScheduleContextInput): AiSchedul
     input.tasks,
     input.settings.weekStartsOn,
     input.reviewPressure,
-    input.settings.defaultUnestimatedTaskMinutes
+    input.settings.defaultUnestimatedTaskMinutes,
+    {},
+    input.anchorDate
   );
 
   return {

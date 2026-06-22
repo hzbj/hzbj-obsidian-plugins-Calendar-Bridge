@@ -17,6 +17,9 @@ test("renders week unscheduled pool with source grouping, sorting, and priority 
   assert.match(source, /cb-week-task-list/);
   assert.match(source, /cb-week-priority cb-priority-marker/);
   assert.match(source, /cb-week-task-content/);
+  assert.match(source, /function shortPriorityLabel/);
+  assert.match(source, /priority === "medium"\) return "med"/);
+  assert.match(source, /shortPriorityLabel\(task\)/);
   assert.match(source, /taskContentLabel\(task\)/);
   assert.match(source, /cleanTaskContentText\(task\.rawLine\)/);
   assert.doesNotMatch(source, /Before anchor/);
@@ -28,6 +31,28 @@ test("renders parent long-task labels on week unscheduled child tasks", () => {
   assert.match(source, /function renderParentLongTaskChip/);
   assert.match(source, /renderParentLongTaskChip\(meta, task\)/);
   assert.match(source, /parentLongTaskText/);
+});
+
+test("renders week recurring task counts without scheduled recurring task names", () => {
+  const source = readFileSync("src/ui/pages/WeekPage.ts", "utf8");
+  const css = readFileSync("styles.css", "utf8");
+  const dayRow = source.slice(source.indexOf("function renderDayRow"), source.indexOf("function renderPoolTask"));
+
+  assert.match(dayRow, /recurringTaskCount/);
+  assert.match(dayRow, /recurringTaskMinutes/);
+  assert.match(dayRow, /cb-week-day-summary/);
+  assert.match(dayRow, /renderWeekSummaryMetric/);
+  assert.match(dayRow, /cb-week-day-metric-label/);
+  assert.match(dayRow, /cb-week-day-metric-value/);
+  assert.match(dayRow, /cb-week-day-total/);
+  assert.match(dayRow, /cb-recurring-compact-summary/);
+  assert.match(dayRow, /repeat/);
+  assert.doesNotMatch(dayRow, /tasks\$\{recurringSummary\} \|/);
+  assert.doesNotMatch(dayRow, /renderScheduledTaskName\([^)]*recurring/i);
+  assert.match(css, /\.cb-week-day-summary/);
+  assert.match(css, /\.cb-week-day-metric/);
+  assert.match(css, /\.cb-recurring-compact-summary/);
+  assert.doesNotMatch(dayRow, /cb-recurring-summary/);
 });
 
 test("opens the source note when week task titles are clicked", () => {

@@ -21,6 +21,36 @@ var import_node_test = require("node:test");
   import_node_assert.strict.match(source, /function renderLongDatePicker/);
   import_node_assert.strict.doesNotMatch(timeline, /cb-timeline-row-track|cb-timeline-bar/);
 });
+(0, import_node_test.test)("renders month recurring task counts separately from concrete task counts", () => {
+  const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
+  const grid = source.slice(source.indexOf("function renderPointMonthGrid"), source.indexOf("function renderWeekdayHeader"));
+  const css = (0, import_node_fs.readFileSync)("styles.css", "utf8");
+  import_node_assert.strict.match(grid, /recurringTaskCount/);
+  import_node_assert.strict.match(grid, /`\$\{load\.taskCount\}\/\$\{load\.recurringTaskCount\}`/);
+  import_node_assert.strict.match(grid, /cb-day-load-breakdown/);
+  import_node_assert.strict.match(grid, /cb-day-load-task/);
+  import_node_assert.strict.match(grid, /cb-day-load-repeat/);
+  import_node_assert.strict.match(grid, /renderDayLoadMetric/);
+  import_node_assert.strict.match(grid, /cb-day-load-label/);
+  import_node_assert.strict.match(grid, /cb-day-load-value/);
+  import_node_assert.strict.match(grid, /cb-day-load-summary/);
+  import_node_assert.strict.match(grid, /recurringTaskMinutes/);
+  import_node_assert.strict.doesNotMatch(grid, /cb-recurring-task-count/);
+  import_node_assert.strict.doesNotMatch(css, /cb-recurring-task-count/);
+  import_node_assert.strict.match(css, /\.cb-day-load-breakdown/);
+  import_node_assert.strict.match(css, /\.cb-day-load-repeat/);
+  import_node_assert.strict.match(css, /\.cb-day-load-label/);
+  import_node_assert.strict.match(css, /\.cb-day-load-value/);
+});
+(0, import_node_test.test)("filters scheduled daily files only for month long-task mode", () => {
+  const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
+  const render = source.slice(source.indexOf("export function renderMonthPage"), source.indexOf("function renderGroupedPool"));
+  import_node_assert.strict.match(render, /const viewMode: MonthTaskViewMode = plugin\.data\.ui\.monthTaskViewMode \?\? "point"/);
+  import_node_assert.strict.match(render, /viewMode === "long"[\s\S]*isScheduledDayFilePath\(task\.filePath, plugin\.data\.settings\.scheduledDayFolder\)/);
+  import_node_assert.strict.match(render, /: plugin\.calendarTasks/);
+  import_node_assert.strict.match(source, /export function isScheduledDayFilePath/);
+  import_node_assert.strict.match(source, /\^\\d\{8\}\\\.md\$/);
+});
 (0, import_node_test.test)("renders vertical long-task timeline with non-overlapping lanes", () => {
   const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
   const timeline = source.slice(source.indexOf("function renderLongVerticalTimeline"), source.indexOf("function setupTimelineDateTarget"));
@@ -31,6 +61,15 @@ var import_node_test = require("node:test");
   import_node_assert.strict.match(timeline, /--cb-long-lanes/);
   import_node_assert.strict.match(source, /gridRow = `\$\{row\.startDay\} \/ \$\{row\.endDay \+ 1\}`/);
   import_node_assert.strict.match(source, /gridColumn = String\(row\.lane\)/);
+});
+(0, import_node_test.test)("uses the long-task red frame for behind pace status", () => {
+  const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
+  const css = (0, import_node_fs.readFileSync)("styles.css", "utf8");
+  const task = source.slice(source.indexOf("function renderLongVerticalTask"), source.indexOf("function renderLongTaskChildren"));
+  import_node_assert.strict.match(task, /toggleClass\("is-behind", row\.status === "behind"\)/);
+  import_node_assert.strict.doesNotMatch(task, /toggleClass\("is-overdue"/);
+  import_node_assert.strict.match(css, /\.cb-long-vertical-bar\.is-behind\s*\{/);
+  import_node_assert.strict.doesNotMatch(css, /\.cb-long-vertical-bar\.is-overdue\s*\{/);
 });
 (0, import_node_test.test)("lets long-task month timelines collapse and expand past days", () => {
   const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
@@ -59,6 +98,22 @@ var import_node_test = require("node:test");
   import_node_assert.strict.match(source, /renderLongTaskChildren\(bar, plugin, row\.childTasks\)/);
   import_node_assert.strict.match(source, /function childTaskScheduleLabel/);
 });
+(0, import_node_test.test)("renders recurring long-task children as compact child rows", () => {
+  const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
+  const css = (0, import_node_fs.readFileSync)("styles.css", "utf8");
+  const children = source.slice(source.indexOf("function renderLongTaskChildren"), source.indexOf("function renderChildLongTaskCard"));
+  import_node_assert.strict.match(children, /isRecurringTask\(child\)/);
+  import_node_assert.strict.match(children, /renderRecurringChildTask\(list, child\)/);
+  import_node_assert.strict.match(source, /function recurringCycleLabel/);
+  import_node_assert.strict.match(source, /function recurringRefreshLabel/);
+  import_node_assert.strict.match(source, /function weekdayLabel/);
+  import_node_assert.strict.match(source, /cb-long-child-cycle/);
+  import_node_assert.strict.match(source, /cb-long-child-refresh/);
+  import_node_assert.strict.match(source, /刷新：/);
+  import_node_assert.strict.match(css, /\.cb-long-child-recurring/);
+  import_node_assert.strict.match(css, /\.cb-long-child-cycle/);
+  import_node_assert.strict.match(css, /\.cb-long-child-refresh/);
+});
 (0, import_node_test.test)("renders scheduled child long tasks as draggable cards inside parent bars", () => {
   const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");
   const css = (0, import_node_fs.readFileSync)("styles.css", "utf8");
@@ -82,6 +137,11 @@ var import_node_test = require("node:test");
   import_node_assert.strict.match(css, /\.cb-long-child-card-title\s*\{[^}]*white-space:\s*normal/s);
   import_node_assert.strict.match(css, /\.cb-long-child-card-title\s*\{[^}]*overflow-wrap:\s*anywhere/s);
   import_node_assert.strict.match(css, /\.cb-long-child-card-range\s*\{[^}]*justify-self:\s*start/s);
+});
+(0, import_node_test.test)("lets compressed long-task bars scroll vertically", () => {
+  const css = (0, import_node_fs.readFileSync)("styles.css", "utf8");
+  const bar = css.slice(css.indexOf(".cb-long-vertical-bar {"), css.indexOf(".cb-long-vertical-bar.is-behind {"));
+  import_node_assert.strict.match(bar, /overflow-y:\s*auto/);
 });
 (0, import_node_test.test)("opens the source note when month task titles are clicked", () => {
   const source = (0, import_node_fs.readFileSync)("src/ui/pages/MonthPage.ts", "utf8");

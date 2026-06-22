@@ -20,10 +20,11 @@ export function buildMonthViewModel(
   weekStartsOn: 0 | 1,
   reviewPressure: ReviewPressureByDate = {},
   defaultUnestimatedTaskMinutes = 30,
-  sourceGroupState: SourceTaskGroupState = {}
+  sourceGroupState: SourceTaskGroupState = {},
+  paceDate = todayString()
 ): CalendarViewModel {
   const days = monthGridDates(anchorDate, weekStartsOn);
-  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "month", sourceGroupState);
+  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "month", sourceGroupState, paceDate);
 }
 
 export function buildWeekViewModel(
@@ -31,10 +32,11 @@ export function buildWeekViewModel(
   tasks: CalendarTask[],
   weekStartsOn: 0 | 1,
   reviewPressure: ReviewPressureByDate = {},
-  defaultUnestimatedTaskMinutes = 30
+  defaultUnestimatedTaskMinutes = 30,
+  paceDate = todayString()
 ): CalendarViewModel {
   const days = weekDates(anchorDate, weekStartsOn);
-  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "week");
+  return buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, "week", {}, paceDate);
 }
 
 function buildViewModel(
@@ -44,14 +46,18 @@ function buildViewModel(
   reviewPressure: ReviewPressureByDate,
   defaultUnestimatedTaskMinutes: number,
   mode: "month" | "week",
-  sourceGroupState: SourceTaskGroupState = {}
+  sourceGroupState: SourceTaskGroupState = {},
+  paceDate: string
 ): CalendarViewModel {
   const activeTasks = tasks.filter((task) => !task.completed);
+  const activeTasksById = new Map(activeTasks.map((task) => [task.id, task]));
+  const recurringLoadTasks = activeTasks.filter(isRecurringLoadTask);
+  const concreteActiveTasks = activeTasks.filter((task) => !isRecurringLoadTask(task));
   // Month pressure is a historical record; completing a point task should not erase its scheduled load.
-  const loadTasks = mode === "month" ? tasks : activeTasks;
-  const pointTasks = activeTasks.filter((task) => task.taskKind !== "long");
+  const loadTasks = (mode === "month" ? tasks : activeTasks).filter((task) => !isRecurringLoadTask(task));
+  const pointTasks = concreteActiveTasks.filter((task) => task.taskKind !== "long");
   const pointLoadTasks = loadTasks.filter((task) => task.taskKind !== "long");
-  const longTasks = activeTasks.filter((task) => task.taskKind === "long");
+  const longTasks = concreteActiveTasks.filter((task) => task.taskKind === "long");
   const topLevelLongTasks = longTasks.filter((task) => !task.parentLongTaskId);
   const visibleDates = new Set(days.map((day) => day.date));
   const tasksByDate: Record<string, CalendarTask[]> = {};
@@ -64,6 +70,8 @@ function buildViewModel(
       date: day.date,
       taskCount: 0,
       taskMinutes: 0,
+      recurringTaskCount: 0,
+      recurringTaskMinutes: 0,
       reviewCount: review.count,
       reviewMinutes: review.minutes,
       heatScore: review.minutes
@@ -76,15 +84,19 @@ function buildViewModel(
       tasksByDate[date].push(task);
       dayLoads[date].taskCount += 1;
       dayLoads[date].taskMinutes += task.estimateMinutes ?? defaultUnestimatedTaskMinutes;
-      dayLoads[date].heatScore = dayLoads[date].taskMinutes + dayLoads[date].reviewMinutes;
     }
+  }
+
+  addRecurringTaskLoads(days, dayLoads, recurringLoadTasks, activeTasksById, defaultUnestimatedTaskMinutes);
+  for (const load of Object.values(dayLoads)) {
+    load.heatScore = load.taskMinutes + load.recurringTaskMinutes + load.reviewMinutes;
   }
 
   const overdueTasks = pointTasks.flatMap((task) => {
     const reason = getOverdueReason(task, todayStringFromAnchor(anchorDate));
     return reason ? [{ ...task, overdueReason: reason }] : [];
   });
-  const unifiedUnscheduledTasks = activeTasks.flatMap((task) => {
+  const unifiedUnscheduledTasks = concreteActiveTasks.flatMap((task) => {
     const reason = getUnifiedUnscheduledReason(task);
     return reason ? [{ ...task, unscheduledReason: reason }] : [];
   });
@@ -94,6 +106,7 @@ function buildViewModel(
   });
   const childTasksByLongTaskId = buildChildTasksByLongTaskId(activeTasks);
 
+  // Long-task pace is measured against the real planning date, not the month/week being browsed.
   return {
     days,
     tasksByDate,
@@ -101,13 +114,12 @@ function buildViewModel(
     overdueTasks,
     unifiedUnscheduledTasks,
     dayLoads,
-    spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
+    spanBars: mode === "month" ? buildSpanBars(days, concreteActiveTasks) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, paceDate) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure, dayLoads) : [],
-    longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
-    longUnscheduledTasks: longTasks.filter((task) => !task.spanStart || !task.spanEnd),
-    longOverdueTasks: longTasks.filter((task) => isLongTaskOverdue(task, todayStringFromAnchor(anchorDate)))
+    longTaskProgress: buildLongTaskProgress(longTasks, paceDate),
+    longUnscheduledTasks: longTasks.filter((task) => !task.spanStart || !task.spanEnd)
   };
 }
 
@@ -217,7 +229,7 @@ function buildLongTaskProgress(tasks: CalendarTask[], today: string): LongTaskPr
         progressPercent,
         dailyProgressPressure,
         dailyEstimatedMinutes,
-        status: progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track"
+        status: longTaskPaceStatus(progressPercent, expectedProgressPercent)
       };
     });
 }
@@ -255,6 +267,7 @@ function buildLongTaskTimelineRows(
       const totalDays = Math.max(1, diffDays(fullStartDate, fullEndDate));
       const daysElapsed = Math.min(totalDays, Math.max(0, diffDays(fullStartDate, today)));
       const expectedProgressPercent = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
+      const overdue = isLongTaskOverdue(task, today);
       return {
         task,
         childTasks: childTasksByLongTaskId.get(task.id) ?? [],
@@ -266,12 +279,15 @@ function buildLongTaskTimelineRows(
         endDay: Number.parseInt(visibleEndDate.slice(8, 10), 10),
         isClippedStart: fullStartDate < first,
         isClippedEnd: fullEndDate > last,
-        isOverdue: isLongTaskOverdue(task, today),
         daysLeft: Math.max(0, diffDays(today, fullEndDate)),
         progressPercent,
-        status: progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track"
+        status: overdue ? "behind" : longTaskPaceStatus(progressPercent, expectedProgressPercent)
       };
     });
+}
+
+function longTaskPaceStatus(progressPercent: number, expectedProgressPercent: number): LongTaskProgress["status"] {
+  return progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track";
 }
 
 function buildSpanBars(days: CalendarDay[], tasks: CalendarTask[]): CalendarSpanBar[] {
@@ -328,9 +344,11 @@ function buildWeekDayRows(
     return {
       day,
       tasks: tasksByDate[day.date] ?? [],
-      taskMinutes: dayLoads[day.date]?.taskMinutes ?? 0,
+      recurringTaskCount: dayLoads[day.date]?.recurringTaskCount ?? 0,
+      recurringTaskMinutes: dayLoads[day.date]?.recurringTaskMinutes ?? 0,
+      taskMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + (dayLoads[day.date]?.recurringTaskMinutes ?? 0),
       review,
-      totalMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + review.minutes
+      totalMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + (dayLoads[day.date]?.recurringTaskMinutes ?? 0) + review.minutes
     };
   });
 }
@@ -376,6 +394,80 @@ function getUnifiedUnscheduledReason(task: CalendarTask): string | undefined {
 
 function isRecurring(task: CalendarTask): boolean {
   return Boolean(task.recurrence?.trim()) || /\brecurr/i.test(task.rawLine) || /🔁/u.test(task.rawLine);
+}
+
+type RecurringFrequency = "day" | "week" | "month" | "year";
+
+function isRecurringLoadTask(task: CalendarTask): boolean {
+  return recurringFrequency(task) !== undefined && Boolean(task.dates.start);
+}
+
+function recurringFrequency(task: CalendarTask): RecurringFrequency | undefined {
+  const normalized = task.recurrence?.trim().toLowerCase().replace(/\s+/gu, " ");
+  if (normalized === "every day") return "day";
+  if (normalized === "every week") return "week";
+  if (normalized === "every month") return "month";
+  if (normalized === "every year") return "year";
+  return undefined;
+}
+
+function addRecurringTaskLoads(
+  days: CalendarDay[],
+  dayLoads: Record<string, CalendarDayLoad>,
+  tasks: CalendarTask[],
+  tasksById: Map<string, CalendarTask>,
+  defaultUnestimatedTaskMinutes: number
+): void {
+  for (const task of tasks) {
+    const frequency = recurringFrequency(task);
+    const startDate = task.dates.start;
+    if (!frequency || !startDate) continue;
+
+    const endDate = recurringEndDate(task, tasksById);
+    if (endDate && startDate > endDate) continue;
+
+    for (const day of days) {
+      if (day.date < startDate) continue;
+      if (endDate && day.date > endDate) continue;
+      if (!recursOnDate(startDate, day.date, frequency)) continue;
+
+      const load = dayLoads[day.date];
+      load.recurringTaskCount += 1;
+      load.recurringTaskMinutes += task.estimateMinutes ?? defaultUnestimatedTaskMinutes;
+    }
+  }
+}
+
+function recurringEndDate(task: CalendarTask, tasksById: Map<string, CalendarTask>): string | undefined {
+  if (task.dates.scheduled) return task.dates.scheduled;
+  const parent = task.parentLongTaskId ? tasksById.get(task.parentLongTaskId) : undefined;
+  return parent?.spanEnd ?? parent?.dates.scheduled;
+}
+
+function recursOnDate(startDate: string, date: string, frequency: RecurringFrequency): boolean {
+  if (frequency === "day") return true;
+
+  const start = parseDateParts(startDate);
+  const current = parseDateParts(date);
+  if (!start || !current) return false;
+
+  if (frequency === "week") return dayOfWeek(startDate) === dayOfWeek(date);
+  if (frequency === "month") return current.day === start.day;
+  return current.month === start.month && current.day === start.day;
+}
+
+function parseDateParts(date: string): { year: number; month: number; day: number } | undefined {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+  if (!match) return undefined;
+  return {
+    year: Number.parseInt(match[1], 10),
+    month: Number.parseInt(match[2], 10),
+    day: Number.parseInt(match[3], 10)
+  };
+}
+
+function dayOfWeek(date: string): number {
+  return new Date(`${date}T00:00:00`).getDay();
 }
 
 function todayStringFromAnchor(anchorDate: string): string {

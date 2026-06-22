@@ -102,13 +102,19 @@ function renderDayRow(parent: HTMLElement, plugin: PersonalSchedulerPlugin, row:
 
   const header = item.createDiv({ cls: "cb-week-day-label" });
   header.createDiv({ cls: "cb-week-date", text: row.day.date });
-  header.createDiv({ cls: "cb-muted", text: `${row.tasks.length} tasks | ${formatMinutes(row.totalMinutes)}` });
+  const summary = header.createDiv({ cls: "cb-week-day-summary" });
+  renderWeekSummaryMetric(summary, "Task", String(row.tasks.length));
+  renderWeekSummaryMetric(summary, "Repeat", String(row.recurringTaskCount));
+  renderWeekSummaryMetric(summary, "Total", formatMinutes(row.totalMinutes), "cb-week-day-total");
 
   const taskPane = item.createDiv({ cls: "cb-week-pressure-pane cb-task-pressure" });
   taskPane.createDiv({ cls: "cb-pane-title", text: `Task pressure ${formatMinutes(row.taskMinutes)}` });
-  if (row.tasks.length === 0) {
+  if (row.recurringTaskCount > 0) {
+    taskPane.createDiv({ cls: "cb-recurring-compact-summary", text: `${row.recurringTaskCount} repeat / ${formatMinutes(row.recurringTaskMinutes)}` });
+  }
+  if (row.tasks.length === 0 && row.recurringTaskCount === 0) {
     taskPane.createDiv({ cls: "cb-empty", text: "No tasks" });
-  } else {
+  } else if (row.tasks.length > 0) {
     const taskList = taskPane.createDiv({ cls: "cb-week-task-list" });
     for (const task of row.tasks) renderScheduledTaskName(taskList, plugin, task);
   }
@@ -119,6 +125,12 @@ function renderDayRow(parent: HTMLElement, plugin: PersonalSchedulerPlugin, row:
     cls: row.review.count > 0 ? "cb-review-summary" : "cb-empty",
     text: row.review.count > 0 ? `${row.review.count} reviews | ${row.review.chars} chars` : "No reviews"
   });
+}
+
+function renderWeekSummaryMetric(parent: HTMLElement, label: string, value: string, extraClass = ""): void {
+  const metric = parent.createDiv({ cls: `cb-week-day-metric ${extraClass}`.trim() });
+  metric.createDiv({ cls: "cb-week-day-metric-label", text: label });
+  metric.createDiv({ cls: "cb-week-day-metric-value", text: value });
 }
 
 function renderPoolTask(parent: HTMLElement, plugin: PersonalSchedulerPlugin, task: CalendarTask): void {
@@ -146,7 +158,7 @@ function renderScheduledTaskName(parent: HTMLElement, plugin: PersonalSchedulerP
   row.draggable = true;
   row.addEventListener("dragstart", (event) => setDragTask(event, task.id));
   row.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
-  row.createSpan({ cls: "cb-week-priority cb-priority-marker", text: priorityLabel(task) });
+  row.createSpan({ cls: "cb-week-priority cb-priority-marker", text: shortPriorityLabel(task) });
   row.createSpan({ cls: "cb-week-task-content", text: taskContentLabel(task) });
 }
 
@@ -240,6 +252,13 @@ function getSourceGroupState(plugin: PersonalSchedulerPlugin): SourceTaskGroupSt
 
 function priorityLabel(task: CalendarTask): string {
   return normalizeTaskPriority(task.priority) ?? "None";
+}
+
+function shortPriorityLabel(task: CalendarTask): string {
+  const priority = normalizeTaskPriority(task.priority);
+  if (priority === "highest") return "hi+";
+  if (priority === "medium") return "med";
+  return priority ?? "None";
 }
 
 function priorityClass(task: CalendarTask): string {

@@ -74,20 +74,23 @@ function normalizeTaskPriority(raw) {
 }
 
 // src/services/CalendarViewModel.ts
-function buildMonthViewModel(anchorDate, tasks2, weekStartsOn, reviewPressure2 = {}, defaultUnestimatedTaskMinutes = 30, sourceGroupState = {}) {
+function buildMonthViewModel(anchorDate, tasks2, weekStartsOn, reviewPressure2 = {}, defaultUnestimatedTaskMinutes = 30, sourceGroupState = {}, paceDate = todayString()) {
   const days = monthGridDates(anchorDate, weekStartsOn);
-  return buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnestimatedTaskMinutes, "month", sourceGroupState);
+  return buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnestimatedTaskMinutes, "month", sourceGroupState, paceDate);
 }
-function buildWeekViewModel(anchorDate, tasks2, weekStartsOn, reviewPressure2 = {}, defaultUnestimatedTaskMinutes = 30) {
+function buildWeekViewModel(anchorDate, tasks2, weekStartsOn, reviewPressure2 = {}, defaultUnestimatedTaskMinutes = 30, paceDate = todayString()) {
   const days = weekDates(anchorDate, weekStartsOn);
-  return buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnestimatedTaskMinutes, "week");
+  return buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnestimatedTaskMinutes, "week", {}, paceDate);
 }
-function buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}) {
+function buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}, paceDate) {
   const activeTasks = tasks2.filter((task2) => !task2.completed);
-  const loadTasks = mode === "month" ? tasks2 : activeTasks;
-  const pointTasks = activeTasks.filter((task2) => task2.taskKind !== "long");
+  const activeTasksById = new Map(activeTasks.map((task2) => [task2.id, task2]));
+  const recurringLoadTasks = activeTasks.filter(isRecurringLoadTask);
+  const concreteActiveTasks = activeTasks.filter((task2) => !isRecurringLoadTask(task2));
+  const loadTasks = (mode === "month" ? tasks2 : activeTasks).filter((task2) => !isRecurringLoadTask(task2));
+  const pointTasks = concreteActiveTasks.filter((task2) => task2.taskKind !== "long");
   const pointLoadTasks = loadTasks.filter((task2) => task2.taskKind !== "long");
-  const longTasks = activeTasks.filter((task2) => task2.taskKind === "long");
+  const longTasks = concreteActiveTasks.filter((task2) => task2.taskKind === "long");
   const topLevelLongTasks = longTasks.filter((task2) => !task2.parentLongTaskId);
   const visibleDates = new Set(days.map((day) => day.date));
   const tasksByDate = {};
@@ -99,6 +102,8 @@ function buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnesti
       date: day.date,
       taskCount: 0,
       taskMinutes: 0,
+      recurringTaskCount: 0,
+      recurringTaskMinutes: 0,
       reviewCount: review.count,
       reviewMinutes: review.minutes,
       heatScore: review.minutes
@@ -111,14 +116,17 @@ function buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnesti
       tasksByDate[date].push(task2);
       dayLoads[date].taskCount += 1;
       dayLoads[date].taskMinutes += task2.estimateMinutes ?? defaultUnestimatedTaskMinutes;
-      dayLoads[date].heatScore = dayLoads[date].taskMinutes + dayLoads[date].reviewMinutes;
     }
+  }
+  addRecurringTaskLoads(days, dayLoads, recurringLoadTasks, activeTasksById, defaultUnestimatedTaskMinutes);
+  for (const load of Object.values(dayLoads)) {
+    load.heatScore = load.taskMinutes + load.recurringTaskMinutes + load.reviewMinutes;
   }
   const overdueTasks = pointTasks.flatMap((task2) => {
     const reason = getOverdueReason(task2, todayStringFromAnchor(anchorDate));
     return reason ? [{ ...task2, overdueReason: reason }] : [];
   });
-  const unifiedUnscheduledTasks = activeTasks.flatMap((task2) => {
+  const unifiedUnscheduledTasks = concreteActiveTasks.flatMap((task2) => {
     const reason = getUnifiedUnscheduledReason(task2);
     return reason ? [{ ...task2, unscheduledReason: reason }] : [];
   });
@@ -134,13 +142,12 @@ function buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnesti
     overdueTasks,
     unifiedUnscheduledTasks,
     dayLoads,
-    spanBars: mode === "month" ? buildSpanBars(days, activeTasks) : [],
-    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, todayStringFromAnchor(anchorDate)) : [],
+    spanBars: mode === "month" ? buildSpanBars(days, concreteActiveTasks) : [],
+    longTaskTimelineRows: mode === "month" ? buildLongTaskTimelineRows(days, topLevelLongTasks, childTasksByLongTaskId, paceDate) : [],
     sourceTaskGroups: mode === "month" ? buildSourceTaskGroups(unifiedUnscheduledTasks, sourceGroupState) : [],
     weekDayRows: mode === "week" ? buildWeekDayRows(days, tasksByDate, reviewPressure2, dayLoads) : [],
-    longTaskProgress: buildLongTaskProgress(longTasks, todayStringFromAnchor(anchorDate)),
-    longUnscheduledTasks: longTasks.filter((task2) => !task2.spanStart || !task2.spanEnd),
-    longOverdueTasks: longTasks.filter((task2) => isLongTaskOverdue(task2, todayStringFromAnchor(anchorDate)))
+    longTaskProgress: buildLongTaskProgress(longTasks, paceDate),
+    longUnscheduledTasks: longTasks.filter((task2) => !task2.spanStart || !task2.spanEnd)
   };
 }
 function buildChildTasksByLongTaskId(tasks2) {
@@ -248,7 +255,7 @@ function buildLongTaskProgress(tasks2, today) {
       progressPercent,
       dailyProgressPressure,
       dailyEstimatedMinutes,
-      status: progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track"
+      status: longTaskPaceStatus(progressPercent, expectedProgressPercent)
     };
   });
 }
@@ -278,6 +285,7 @@ function buildLongTaskTimelineRows(days, tasks2, childTasksByLongTaskId, today) 
     const totalDays = Math.max(1, diffDays(fullStartDate, fullEndDate));
     const daysElapsed = Math.min(totalDays, Math.max(0, diffDays(fullStartDate, today)));
     const expectedProgressPercent = Math.min(100, Math.round(daysElapsed / totalDays * 100));
+    const overdue = isLongTaskOverdue(task2, today);
     return {
       task: task2,
       childTasks: childTasksByLongTaskId.get(task2.id) ?? [],
@@ -289,12 +297,14 @@ function buildLongTaskTimelineRows(days, tasks2, childTasksByLongTaskId, today) 
       endDay: Number.parseInt(visibleEndDate.slice(8, 10), 10),
       isClippedStart: fullStartDate < first,
       isClippedEnd: fullEndDate > last,
-      isOverdue: isLongTaskOverdue(task2, today),
       daysLeft: Math.max(0, diffDays(today, fullEndDate)),
       progressPercent,
-      status: progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track"
+      status: overdue ? "behind" : longTaskPaceStatus(progressPercent, expectedProgressPercent)
     };
   });
+}
+function longTaskPaceStatus(progressPercent, expectedProgressPercent) {
+  return progressPercent + 5 < expectedProgressPercent ? "behind" : progressPercent > expectedProgressPercent + 5 ? "ahead" : "on-track";
 }
 function buildSpanBars(days, tasks2) {
   const first = days[0]?.date;
@@ -345,9 +355,11 @@ function buildWeekDayRows(days, tasksByDate, reviewPressure2, dayLoads) {
     return {
       day,
       tasks: tasksByDate[day.date] ?? [],
-      taskMinutes: dayLoads[day.date]?.taskMinutes ?? 0,
+      recurringTaskCount: dayLoads[day.date]?.recurringTaskCount ?? 0,
+      recurringTaskMinutes: dayLoads[day.date]?.recurringTaskMinutes ?? 0,
+      taskMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + (dayLoads[day.date]?.recurringTaskMinutes ?? 0),
       review,
-      totalMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + review.minutes
+      totalMinutes: (dayLoads[day.date]?.taskMinutes ?? 0) + (dayLoads[day.date]?.recurringTaskMinutes ?? 0) + review.minutes
     };
   });
 }
@@ -398,6 +410,75 @@ function getUnifiedUnscheduledReason(task2) {
 }
 function isRecurring(task2) {
   return Boolean(task2.recurrence?.trim()) || /\brecurr/i.test(task2.rawLine) || /🔁/u.test(task2.rawLine);
+}
+function isRecurringLoadTask(task2) {
+  return recurringFrequency(task2) !== void 0 && Boolean(task2.dates.start);
+}
+function recurringFrequency(task2) {
+  const normalized = task2.recurrence?.trim().toLowerCase().replace(/\s+/gu, " ");
+  if (normalized === "every day")
+    return "day";
+  if (normalized === "every week")
+    return "week";
+  if (normalized === "every month")
+    return "month";
+  if (normalized === "every year")
+    return "year";
+  return void 0;
+}
+function addRecurringTaskLoads(days, dayLoads, tasks2, tasksById, defaultUnestimatedTaskMinutes) {
+  for (const task2 of tasks2) {
+    const frequency = recurringFrequency(task2);
+    const startDate = task2.dates.start;
+    if (!frequency || !startDate)
+      continue;
+    const endDate = recurringEndDate(task2, tasksById);
+    if (endDate && startDate > endDate)
+      continue;
+    for (const day of days) {
+      if (day.date < startDate)
+        continue;
+      if (endDate && day.date > endDate)
+        continue;
+      if (!recursOnDate(startDate, day.date, frequency))
+        continue;
+      const load = dayLoads[day.date];
+      load.recurringTaskCount += 1;
+      load.recurringTaskMinutes += task2.estimateMinutes ?? defaultUnestimatedTaskMinutes;
+    }
+  }
+}
+function recurringEndDate(task2, tasksById) {
+  if (task2.dates.scheduled)
+    return task2.dates.scheduled;
+  const parent = task2.parentLongTaskId ? tasksById.get(task2.parentLongTaskId) : void 0;
+  return parent?.spanEnd ?? parent?.dates.scheduled;
+}
+function recursOnDate(startDate, date, frequency) {
+  if (frequency === "day")
+    return true;
+  const start = parseDateParts(startDate);
+  const current = parseDateParts(date);
+  if (!start || !current)
+    return false;
+  if (frequency === "week")
+    return dayOfWeek(startDate) === dayOfWeek(date);
+  if (frequency === "month")
+    return current.day === start.day;
+  return current.month === start.month && current.day === start.day;
+}
+function parseDateParts(date) {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
+  if (!match)
+    return void 0;
+  return {
+    year: Number.parseInt(match[1], 10),
+    month: Number.parseInt(match[2], 10),
+    day: Number.parseInt(match[3], 10)
+  };
+}
+function dayOfWeek(date) {
+  return (/* @__PURE__ */ new Date(`${date}T00:00:00`)).getDay();
 }
 function todayStringFromAnchor(anchorDate) {
   return anchorDate || todayString();
@@ -478,10 +559,102 @@ var reviewPressure = {
   import_node_assert.strict.equal(model.weekDayRows[0].review.count, 2);
   import_node_assert.strict.equal(model.dayLoads["2024-01-18"].reviewMinutes, 4);
   import_node_assert.strict.equal(model.dayLoads["2024-01-18"].taskMinutes, 0);
-  import_node_assert.strict.deepEqual(model.overdueTasks.map((item) => item.id), ["h"]);
-  import_node_assert.strict.equal(model.overdueTasks[0].overdueReason, "recurring start before today");
+  import_node_assert.strict.deepEqual(model.overdueTasks.map((item) => item.id), []);
+  import_node_assert.strict.equal(model.dayLoads["2024-01-17"].recurringTaskCount, 1);
+  import_node_assert.strict.equal(model.dayLoads["2024-01-17"].recurringTaskMinutes, 30);
   import_node_assert.strict.equal(model.unscheduledTasks[0].unscheduledReason, "scheduled is empty and not recurring");
   import_node_assert.strict.equal(model.unscheduledTasks[2].unscheduledReason, "path contains \u6536\u96C6/\u4EE3\u529E");
+});
+(0, import_node_test.test)("counts recurring tasks separately without rendering them as scheduled tasks", () => {
+  const recurringTasks = [
+    task("daily", "Daily habit", { start: "2026-06-22" }, {
+      taskKind: "long",
+      recurrence: "every day",
+      estimateMinutes: 15
+    }),
+    task("weekly", "Weekly review", { start: "2026-06-23" }, {
+      taskKind: "long",
+      recurrence: "EVERY WEEK"
+    }),
+    task("monthly", "Month close", { start: "2026-06-30" }, {
+      taskKind: "long",
+      recurrence: "every month",
+      estimateMinutes: 45
+    }),
+    task("yearly", "Annual review", { start: "2025-06-24" }, {
+      taskKind: "long",
+      recurrence: "every year",
+      estimateMinutes: 90
+    }),
+    task("done", "Done repeating", { start: "2026-06-22" }, {
+      taskKind: "long",
+      recurrence: "every day",
+      completed: true,
+      estimateMinutes: 120
+    }),
+    task("point", "Scheduled point", { scheduled: "2026-06-24" }, { estimateMinutes: 20 })
+  ];
+  const week = buildWeekViewModel("2026-06-22", recurringTasks, 1, {}, 30, "2026-06-22");
+  import_node_assert.strict.equal(week.dayLoads["2026-06-22"].taskCount, 0);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-22"].recurringTaskCount, 1);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-22"].recurringTaskMinutes, 15);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-23"].recurringTaskCount, 2);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-23"].recurringTaskMinutes, 45);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-24"].taskCount, 1);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-24"].recurringTaskCount, 2);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-24"].taskMinutes, 20);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-24"].recurringTaskMinutes, 105);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-24"].heatScore, 125);
+  import_node_assert.strict.deepEqual(week.tasksByDate["2026-06-24"].map((item) => item.id), ["point"]);
+  import_node_assert.strict.deepEqual(week.weekDayRows[2].tasks.map((item) => item.id), ["point"]);
+  import_node_assert.strict.equal(week.weekDayRows[2].recurringTaskCount, 2);
+  import_node_assert.strict.equal(week.weekDayRows[2].taskMinutes, 125);
+  import_node_assert.strict.equal(week.longTaskTimelineRows.length, 0);
+  const month = buildMonthViewModel("2026-06-15", recurringTasks, 1, {}, 30, {}, "2026-06-22");
+  import_node_assert.strict.equal(month.dayLoads["2026-06-30"].recurringTaskCount, 3);
+  import_node_assert.strict.equal(month.dayLoads["2026-06-30"].recurringTaskMinutes, 90);
+  import_node_assert.strict.equal(month.longTaskTimelineRows.length, 0);
+});
+(0, import_node_test.test)("uses recurring task scheduled dates before parent scheduled dates as inclusive ends", () => {
+  const recurringTasks = [
+    task("parent", "Parent long", { start: "2026-06-20", scheduled: "2026-06-28" }, {
+      taskKind: "long"
+    }),
+    task("child-parent-end", "Child until parent", { start: "2026-06-24" }, {
+      taskKind: "long",
+      parentLongTaskId: "parent",
+      parentLongTaskText: "Parent long",
+      recurrence: "every day"
+    }),
+    task("child-own-end", "Child own end", { start: "2026-06-24", scheduled: "2026-06-26" }, {
+      taskKind: "long",
+      parentLongTaskId: "parent",
+      parentLongTaskText: "Parent long",
+      recurrence: "every day",
+      estimateMinutes: 10
+    }),
+    task("invalid", "Invalid range", { start: "2026-06-29", scheduled: "2026-06-27" }, {
+      taskKind: "long",
+      recurrence: "every day"
+    })
+  ];
+  const model = buildMonthViewModel("2026-06-15", recurringTasks, 1, {}, 30, {}, "2026-06-24");
+  import_node_assert.strict.equal(model.dayLoads["2026-06-24"].recurringTaskCount, 2);
+  import_node_assert.strict.equal(model.dayLoads["2026-06-24"].recurringTaskMinutes, 40);
+  import_node_assert.strict.equal(model.dayLoads["2026-06-26"].recurringTaskCount, 2);
+  import_node_assert.strict.equal(model.dayLoads["2026-06-27"].recurringTaskCount, 1);
+  import_node_assert.strict.equal(model.dayLoads["2026-06-28"].recurringTaskCount, 1);
+  import_node_assert.strict.equal(model.dayLoads["2026-06-29"].recurringTaskCount, 0);
+  import_node_assert.strict.deepEqual(model.longTaskTimelineRows.map((row) => row.task.id), ["parent"]);
+  import_node_assert.strict.deepEqual(model.longTaskTimelineRows[0].childTasks.map((task2) => ({
+    id: task2.id,
+    recurrence: task2.recurrence,
+    start: task2.dates.start,
+    ownEnd: task2.dates.scheduled
+  })), [
+    { id: "child-parent-end", recurrence: "every day", start: "2026-06-24", ownEnd: void 0 },
+    { id: "child-own-end", recurrence: "every day", start: "2026-06-24", ownEnd: "2026-06-26" }
+  ]);
 });
 (0, import_node_test.test)("recognizes TaskForge scheduled overdue after the filter baseline", () => {
   const model = buildWeekViewModel("2026-06-17", tasks, 1, {}, 30);
@@ -505,12 +678,11 @@ var reviewPressure = {
     }),
     task("p1", "Point", { scheduled: "2026-06-17" }, { estimateMinutes: 30 })
   ];
-  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
+  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30, {}, "2026-06-17");
   import_node_assert.strict.deepEqual(model.tasksByDate["2026-06-17"].map((item) => item.id), ["p1"]);
   import_node_assert.strict.equal(model.dayLoads["2026-06-17"].taskMinutes, 30);
   import_node_assert.strict.deepEqual(model.longTaskProgress.map((item) => item.task.id), ["l1"]);
   import_node_assert.strict.deepEqual(model.longUnscheduledTasks.map((item) => item.id), ["l2"]);
-  import_node_assert.strict.deepEqual(model.longOverdueTasks.map((item) => item.id), ["l3"]);
   import_node_assert.strict.equal(model.longTaskProgress[0].daysLeft, 3);
   import_node_assert.strict.equal(model.longTaskProgress[0].dailyProgressPressure, 25);
   import_node_assert.strict.equal(model.longTaskProgress[0].dailyEstimatedMinutes, 150);
@@ -548,25 +720,25 @@ var reviewPressure = {
   import_node_assert.strict.equal(model.unifiedUnscheduledTasks.some((item) => item.id === "l1"), false);
   import_node_assert.strict.equal(model.unifiedUnscheduledTasks.some((item) => item.id === "l2"), false);
 });
-(0, import_node_test.test)("builds current-month long task timeline rows including overdue and clipped cross-month ranges", () => {
+(0, import_node_test.test)("builds current-month long task timeline rows with clipped ranges and pace status", () => {
   const longTasks = [
-    task("l1", "Cross month", { start: "2026-05-28", scheduled: "2026-06-04" }, { taskKind: "long" }),
+    task("l1", "Cross month", { start: "2026-05-28", scheduled: "2026-06-04" }, { taskKind: "long", progressPercent: 99 }),
     task("l2", "Inside month", { start: "2026-06-10", scheduled: "2026-06-20" }, { taskKind: "long" }),
     task("l3", "Overdue long", { start: "2026-06-01", scheduled: "2026-06-16" }, { taskKind: "long", progressPercent: 80 }),
     task("p1", "Point", { scheduled: "2026-06-12" })
   ];
-  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
+  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30, {}, "2026-06-17");
   import_node_assert.strict.deepEqual(model.longTaskTimelineRows.map((row) => ({
     id: row.task.id,
     visibleStartDate: row.visibleStartDate,
     visibleEndDate: row.visibleEndDate,
     startDay: row.startDay,
     endDay: row.endDay,
-    isOverdue: row.isOverdue
+    status: row.status
   })), [
-    { id: "l1", visibleStartDate: "2026-06-01", visibleEndDate: "2026-06-04", startDay: 1, endDay: 4, isOverdue: true },
-    { id: "l3", visibleStartDate: "2026-06-01", visibleEndDate: "2026-06-16", startDay: 1, endDay: 16, isOverdue: true },
-    { id: "l2", visibleStartDate: "2026-06-10", visibleEndDate: "2026-06-20", startDay: 10, endDay: 20, isOverdue: false }
+    { id: "l1", visibleStartDate: "2026-06-01", visibleEndDate: "2026-06-04", startDay: 1, endDay: 4, status: "behind" },
+    { id: "l3", visibleStartDate: "2026-06-01", visibleEndDate: "2026-06-16", startDay: 1, endDay: 16, status: "behind" },
+    { id: "l2", visibleStartDate: "2026-06-10", visibleEndDate: "2026-06-20", startDay: 10, endDay: 20, status: "behind" }
   ]);
 });
 (0, import_node_test.test)("attaches active indented child tasks to their parent long task timeline row", () => {
@@ -578,7 +750,7 @@ var reviewPressure = {
     task("d1", "Done child", {}, { completed: true, parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("p3", "Other child", {}, { parentLongTaskId: "missing", parentLongTaskText: "Missing" })
   ];
-  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
+  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30, {}, "2026-06-17");
   const parentRow = model.longTaskTimelineRows.find((row) => row.task.id === "l1");
   import_node_assert.strict.deepEqual(model.longTaskTimelineRows.map((row) => row.task.id), ["l1"]);
   import_node_assert.strict.deepEqual(parentRow?.childTasks.map((item) => item.id), ["p2", "l2", "p1"]);
@@ -593,7 +765,7 @@ var reviewPressure = {
     task("p1", "Earlier point child", { scheduled: "2026-06-11" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" }),
     task("p2", "Middle point child", { scheduled: "2026-06-12" }, { parentLongTaskId: "l1", parentLongTaskText: "Parent long" })
   ];
-  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30);
+  const model = buildMonthViewModel("2026-06-17", longTasks, 1, {}, 30, {}, "2026-06-17");
   const parentRow = model.longTaskTimelineRows.find((row) => row.task.id === "l1");
   import_node_assert.strict.deepEqual(parentRow?.childTasks.map((item) => item.id), ["p1", "p2", "l2", "u1"]);
 });
