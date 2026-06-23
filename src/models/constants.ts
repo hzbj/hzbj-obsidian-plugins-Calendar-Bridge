@@ -22,7 +22,9 @@ export const DEFAULT_DATA: CalendarBridgeData = {
     reviewCharsPerMinute: 800,
     defaultUnestimatedTaskMinutes: 30,
     monthHeatmapMode: "task-estimate-plus-review",
-    scheduledDayFolder: "Calendar/Scheduled"
+    scheduledDayFolder: "Calendar/Scheduled",
+    archiveHeading: "归档",
+    scheduleInPlacePathPrefixes: ["规划/阶段"]
   },
   ui: {
     sourceTaskGroups: {

@@ -24,4 +24,18 @@ export function normalizeCalendarPathSettings(settings: CalendarSettings): void 
   settings.includedPathPrefixes = settings.includedPathPrefixes.map(normalizePathSetting).filter(Boolean);
   settings.excludedPathPrefixes = settings.excludedPathPrefixes.map(normalizePathSetting).filter(Boolean);
   settings.scheduledDayFolder = normalizePathSetting(settings.scheduledDayFolder) || "Calendar/Scheduled";
+  settings.archiveHeading = settings.archiveHeading?.trim() || "归档";
+  settings.scheduleInPlacePathPrefixes = (settings.scheduleInPlacePathPrefixes ?? ["规划/阶段"]).map(normalizePathSetting).filter(Boolean);
+}
+
+export function matchesAnyPathPrefix(filePath: string, prefixes: string[]): boolean {
+  return prefixes.some((prefix) => matchesPathPrefix(filePath, prefix));
+}
+
+export function matchesPathPrefix(filePath: string, prefix: string): boolean {
+  const normalizedFilePath = normalizePathSetting(filePath);
+  const normalizedPrefix = normalizePathSetting(prefix);
+  if (!normalizedPrefix) return false;
+  const folder = normalizedPrefix.replace(/\/$/u, "");
+  return normalizedFilePath === folder || normalizedFilePath.startsWith(`${folder}/`);
 }

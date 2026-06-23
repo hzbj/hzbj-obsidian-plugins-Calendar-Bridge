@@ -58,6 +58,8 @@ function parseLocalDate(dateString) {
 }
 
 // src/utils/DataviewTaskDate.ts
+var INLINE_FIELD_RE = /\[([^\[\]\n:]+)::\s*([^\]\n]*)\]/gu;
+var LEGACY_EMOJI_DATE_RE = /\s*(?:📅|馃搮)\s*(\d{4}-\d{2}-\d{2})\s*/u;
 function normalizeTaskPriority(raw) {
   if (!raw)
     return void 0;
@@ -72,6 +74,14 @@ function normalizeTaskPriority(raw) {
     return "low";
   return void 0;
 }
+function cleanTaskContentText(line) {
+  const withoutCheckbox = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "");
+  const withoutFields = withoutCheckbox.replace(INLINE_FIELD_RE, " ").replace(LEGACY_EMOJI_DATE_RE, " ");
+  return withoutFields.split(/\s+/u).filter((part) => part && !part.startsWith("#") && !isPlainEstimateToken(part)).join(" ").replace(/\s+/gu, " ").trim();
+}
+function isPlainEstimateToken(part) {
+  return /^(?:(?:\d+(?:\.\d+)?)h)?(?:(?:\d+)m)?$/u.test(part.toLowerCase()) && /[hm]/iu.test(part);
+}
 
 // src/services/CalendarViewModel.ts
 function buildMonthViewModel(anchorDate, tasks2, weekStartsOn, reviewPressure2 = {}, defaultUnestimatedTaskMinutes = 30, sourceGroupState = {}, paceDate = todayString()) {
@@ -85,7 +95,7 @@ function buildWeekViewModel(anchorDate, tasks2, weekStartsOn, reviewPressure2 = 
 function buildViewModel(days, tasks2, anchorDate, reviewPressure2, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}, paceDate) {
   const activeTasks = tasks2.filter((task2) => !task2.completed);
   const activeTasksById = new Map(activeTasks.map((task2) => [task2.id, task2]));
-  const recurringLoadTasks = activeTasks.filter(isRecurringLoadTask);
+  const recurringLoadTasks = mode === "week" ? dedupeWeekRecurringLoadTasks(activeTasks.filter(isRecurringLoadTask)) : activeTasks.filter(isRecurringLoadTask);
   const concreteActiveTasks = activeTasks.filter((task2) => !isRecurringLoadTask(task2));
   const loadTasks = (mode === "month" ? tasks2 : activeTasks).filter((task2) => !isRecurringLoadTask(task2));
   const pointTasks = concreteActiveTasks.filter((task2) => task2.taskKind !== "long");
@@ -448,6 +458,36 @@ function addRecurringTaskLoads(days, dayLoads, tasks2, tasksById, defaultUnestim
     }
   }
 }
+function dedupeWeekRecurringLoadTasks(tasks2) {
+  const latestByKey = /* @__PURE__ */ new Map();
+  for (const task2 of tasks2) {
+    const key = recurringDedupeKey(task2);
+    const existing = latestByKey.get(key);
+    if (!existing || compareRecurringTaskStart(task2, existing) > 0) {
+      latestByKey.set(key, task2);
+    }
+  }
+  return [...latestByKey.values()];
+}
+function recurringDedupeKey(task2) {
+  const content = (cleanTaskContentText(task2.rawLine) || task2.text).toLowerCase().replace(/\s+/gu, " ").trim();
+  const recurrence = task2.recurrence?.trim().toLowerCase().replace(/\s+/gu, " ") ?? "";
+  const context = task2.parentLongTaskId ?? task2.filePath;
+  return `${context}
+${recurrence}
+${content}`;
+}
+function compareRecurringTaskStart(left, right) {
+  const leftStart = isValidDate(left.dates.start) ? left.dates.start : "";
+  const rightStart = isValidDate(right.dates.start) ? right.dates.start : "";
+  const startCompare = leftStart.localeCompare(rightStart);
+  if (startCompare !== 0)
+    return startCompare;
+  const lineCompare = left.lineNumber - right.lineNumber;
+  if (lineCompare !== 0)
+    return lineCompare;
+  return left.id.localeCompare(right.id);
+}
 function recurringEndDate(task2, tasksById) {
   if (task2.dates.scheduled)
     return task2.dates.scheduled;
@@ -476,6 +516,9 @@ function parseDateParts(date) {
     month: Number.parseInt(match[2], 10),
     day: Number.parseInt(match[3], 10)
   };
+}
+function isValidDate(date) {
+  return Boolean(date && parseDateParts(date));
 }
 function dayOfWeek(date) {
   return (/* @__PURE__ */ new Date(`${date}T00:00:00`)).getDay();
@@ -655,6 +698,56 @@ var reviewPressure = {
     { id: "child-parent-end", recurrence: "every day", start: "2026-06-24", ownEnd: void 0 },
     { id: "child-own-end", recurrence: "every day", start: "2026-06-24", ownEnd: "2026-06-26" }
   ]);
+});
+(0, import_node_test.test)("dedupes week recurring loads by content and recurrence using the newest start date", () => {
+  const recurringTasks = [
+    task("old", "Water plants", { start: "2026-06-15" }, {
+      taskKind: "long",
+      recurrence: "every day",
+      estimateMinutes: 10,
+      rawLine: "- [ ] Water plants #task [recurrence:: every day] [start:: 2026-06-15]"
+    }),
+    task("new", "Water plants", { start: "2026-06-20" }, {
+      taskKind: "long",
+      recurrence: "every day",
+      estimateMinutes: 25,
+      lineNumber: 9,
+      rawLine: "- [ ] Water plants #task [recurrence:: every day] [start:: 2026-06-20]"
+    })
+  ];
+  const week = buildWeekViewModel("2026-06-22", recurringTasks, 1, {}, 30, "2026-06-22");
+  import_node_assert.strict.equal(week.dayLoads["2026-06-22"].recurringTaskCount, 1);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-22"].recurringTaskMinutes, 25);
+  import_node_assert.strict.equal(week.weekDayRows[0].recurringTaskCount, 1);
+  import_node_assert.strict.equal(week.weekDayRows[0].totalMinutes, 25);
+  const month = buildMonthViewModel("2026-06-22", recurringTasks, 1, {}, 30, {}, "2026-06-22");
+  import_node_assert.strict.equal(month.dayLoads["2026-06-22"].recurringTaskCount, 2);
+  import_node_assert.strict.equal(month.dayLoads["2026-06-22"].recurringTaskMinutes, 35);
+});
+(0, import_node_test.test)("keeps distinct recurring task content and recurrence rules separate", () => {
+  const recurringTasks = [
+    task("daily", "Review notes", { start: "2026-06-22" }, {
+      taskKind: "long",
+      recurrence: "every day",
+      estimateMinutes: 10,
+      rawLine: "- [ ] Review notes #task [recurrence:: every day] [start:: 2026-06-22]"
+    }),
+    task("weekly", "Review notes", { start: "2026-06-22" }, {
+      taskKind: "long",
+      recurrence: "every week",
+      estimateMinutes: 20,
+      rawLine: "- [ ] Review notes #task [recurrence:: every week] [start:: 2026-06-22]"
+    }),
+    task("other", "Write notes", { start: "2026-06-22" }, {
+      taskKind: "long",
+      recurrence: "every day",
+      estimateMinutes: 30,
+      rawLine: "- [ ] Write notes #task [recurrence:: every day] [start:: 2026-06-22]"
+    })
+  ];
+  const week = buildWeekViewModel("2026-06-22", recurringTasks, 1, {}, 30, "2026-06-22");
+  import_node_assert.strict.equal(week.dayLoads["2026-06-22"].recurringTaskCount, 3);
+  import_node_assert.strict.equal(week.dayLoads["2026-06-22"].recurringTaskMinutes, 60);
 });
 (0, import_node_test.test)("recognizes TaskForge scheduled overdue after the filter baseline", () => {
   const model = buildWeekViewModel("2026-06-17", tasks, 1, {}, 30);

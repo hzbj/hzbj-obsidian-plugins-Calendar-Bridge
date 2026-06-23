@@ -181,6 +181,63 @@ test("uses recurring task scheduled dates before parent scheduled dates as inclu
   ]);
 });
 
+test("dedupes week recurring loads by content and recurrence using the newest start date", () => {
+  const recurringTasks: CalendarTask[] = [
+    task("old", "Water plants", { start: "2026-06-15" }, {
+      taskKind: "long",
+      recurrence: "every day",
+      estimateMinutes: 10,
+      rawLine: "- [ ] Water plants #task [recurrence:: every day] [start:: 2026-06-15]"
+    }),
+    task("new", "Water plants", { start: "2026-06-20" }, {
+      taskKind: "long",
+      recurrence: "every day",
+      estimateMinutes: 25,
+      lineNumber: 9,
+      rawLine: "- [ ] Water plants #task [recurrence:: every day] [start:: 2026-06-20]"
+    })
+  ];
+
+  const week = buildWeekViewModel("2026-06-22", recurringTasks, 1, {}, 30, "2026-06-22");
+
+  assert.equal(week.dayLoads["2026-06-22"].recurringTaskCount, 1);
+  assert.equal(week.dayLoads["2026-06-22"].recurringTaskMinutes, 25);
+  assert.equal(week.weekDayRows[0].recurringTaskCount, 1);
+  assert.equal(week.weekDayRows[0].totalMinutes, 25);
+
+  const month = buildMonthViewModel("2026-06-22", recurringTasks, 1, {}, 30, {}, "2026-06-22");
+  assert.equal(month.dayLoads["2026-06-22"].recurringTaskCount, 2);
+  assert.equal(month.dayLoads["2026-06-22"].recurringTaskMinutes, 35);
+});
+
+test("keeps distinct recurring task content and recurrence rules separate", () => {
+  const recurringTasks: CalendarTask[] = [
+    task("daily", "Review notes", { start: "2026-06-22" }, {
+      taskKind: "long",
+      recurrence: "every day",
+      estimateMinutes: 10,
+      rawLine: "- [ ] Review notes #task [recurrence:: every day] [start:: 2026-06-22]"
+    }),
+    task("weekly", "Review notes", { start: "2026-06-22" }, {
+      taskKind: "long",
+      recurrence: "every week",
+      estimateMinutes: 20,
+      rawLine: "- [ ] Review notes #task [recurrence:: every week] [start:: 2026-06-22]"
+    }),
+    task("other", "Write notes", { start: "2026-06-22" }, {
+      taskKind: "long",
+      recurrence: "every day",
+      estimateMinutes: 30,
+      rawLine: "- [ ] Write notes #task [recurrence:: every day] [start:: 2026-06-22]"
+    })
+  ];
+
+  const week = buildWeekViewModel("2026-06-22", recurringTasks, 1, {}, 30, "2026-06-22");
+
+  assert.equal(week.dayLoads["2026-06-22"].recurringTaskCount, 3);
+  assert.equal(week.dayLoads["2026-06-22"].recurringTaskMinutes, 60);
+});
+
 test("recognizes TaskForge scheduled overdue after the filter baseline", () => {
   const model = buildWeekViewModel("2026-06-17", tasks, 1, {}, 30);
   const overdue = model.overdueTasks.find((item) => item.id === "i");

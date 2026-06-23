@@ -40,6 +40,7 @@ export class PersonalSystemView extends ItemView {
     const nav = root.createDiv({ cls: "ps-top-nav" });
     this.addNavButton(nav, "month", "月视图");
     this.addNavButton(nav, "week", "周视图");
+    nav.createEl("button", { cls: "ps-nav-button", text: "归档" }).addEventListener("click", () => this.plugin.openTaskArchiveModal());
     this.addNavButton(nav, "settings", "设置");
 
     const page = root.createDiv({ cls: "ps-page" });

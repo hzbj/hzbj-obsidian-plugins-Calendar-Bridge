@@ -26,6 +26,14 @@ export function renderSettingsPage(container: HTMLElement, plugin: PersonalSched
     plugin.data.settings.scheduledDayFolder = normalizePathSetting(value) || "Calendar/Scheduled";
     await plugin.saveCalendarData();
   });
+  addTextSetting(panel, "Schedule-in-place folders", plugin.data.settings.scheduleInPlacePathPrefixes.join(","), async (value) => {
+    plugin.data.settings.scheduleInPlacePathPrefixes = splitPathCsv(value, ["规划/阶段"]);
+    await plugin.saveCalendarData();
+  });
+  addTextSetting(panel, "Archive heading", plugin.data.settings.archiveHeading, async (value) => {
+    plugin.data.settings.archiveHeading = value.trim() || "归档";
+    await plugin.saveCalendarData();
+  });
   addToggleSetting(panel, "Read legacy emoji dates", plugin.data.settings.readLegacyEmojiDates, async (value) => {
     plugin.data.settings.readLegacyEmojiDates = value;
     await plugin.saveCalendarData();

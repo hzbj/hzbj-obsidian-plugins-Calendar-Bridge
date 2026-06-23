@@ -18,7 +18,9 @@ const settings: CalendarSettings = {
   reviewCharsPerMinute: 800,
   defaultUnestimatedTaskMinutes: 30,
   monthHeatmapMode: "task-estimate-plus-review",
-  scheduledDayFolder: "规划/日"
+  scheduledDayFolder: "规划/日",
+  archiveHeading: "归档",
+  scheduleInPlacePathPrefixes: ["规划/阶段"]
 };
 
 test("builds AI schedule context with stable horizons and planning signals", () => {

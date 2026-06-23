@@ -24,6 +24,19 @@ function normalizeCalendarPathSettings(settings) {
   settings.includedPathPrefixes = settings.includedPathPrefixes.map(normalizePathSetting).filter(Boolean);
   settings.excludedPathPrefixes = settings.excludedPathPrefixes.map(normalizePathSetting).filter(Boolean);
   settings.scheduledDayFolder = normalizePathSetting(settings.scheduledDayFolder) || "Calendar/Scheduled";
+  settings.archiveHeading = settings.archiveHeading?.trim() || "\u5F52\u6863";
+  settings.scheduleInPlacePathPrefixes = (settings.scheduleInPlacePathPrefixes ?? ["\u89C4\u5212/\u9636\u6BB5"]).map(normalizePathSetting).filter(Boolean);
+}
+function matchesAnyPathPrefix(filePath, prefixes) {
+  return prefixes.some((prefix) => matchesPathPrefix(filePath, prefix));
+}
+function matchesPathPrefix(filePath, prefix) {
+  const normalizedFilePath = normalizePathSetting(filePath);
+  const normalizedPrefix = normalizePathSetting(prefix);
+  if (!normalizedPrefix)
+    return false;
+  const folder = normalizedPrefix.replace(/\/$/u, "");
+  return normalizedFilePath === folder || normalizedFilePath.startsWith(`${folder}/`);
 }
 
 // tests/pathSettings.test.ts
@@ -41,4 +54,11 @@ function normalizeCalendarPathSettings(settings) {
   import_node_assert.strict.deepEqual(settings.includedPathPrefixes, ["\u89C4\u5212/"]);
   import_node_assert.strict.deepEqual(settings.excludedPathPrefixes, ["time-blocks-data/", ".obsidian/"]);
   import_node_assert.strict.equal(settings.scheduledDayFolder, "Calendar/Scheduled");
+  import_node_assert.strict.equal(settings.archiveHeading, "\u5F52\u6863");
+  import_node_assert.strict.deepEqual(settings.scheduleInPlacePathPrefixes, ["\u89C4\u5212/\u9636\u6BB5"]);
+});
+(0, import_node_test.test)("matches normalized schedule-in-place path prefixes", () => {
+  import_node_assert.strict.equal(matchesAnyPathPrefix("\u89C4\u5212/\u9636\u6BB5/Project.md", ["\u89C4\u5212/\u9636\u6BB5"]), true);
+  import_node_assert.strict.equal(matchesAnyPathPrefix("\u89C4\u5212/\u9636\u6BB5", ["\u89C4\u5212/\u9636\u6BB5"]), true);
+  import_node_assert.strict.equal(matchesAnyPathPrefix("\u89C4\u5212/\u4EE3\u529E/Inbox.md", ["\u89C4\u5212/\u9636\u6BB5"]), false);
 });

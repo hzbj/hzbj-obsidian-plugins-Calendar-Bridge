@@ -39,6 +39,8 @@ function parseLocalDate(dateString) {
 }
 
 // src/utils/DataviewTaskDate.ts
+var INLINE_FIELD_RE = /\[([^\[\]\n:]+)::\s*([^\]\n]*)\]/gu;
+var LEGACY_EMOJI_DATE_RE = /\s*(?:📅|馃搮)\s*(\d{4}-\d{2}-\d{2})\s*/u;
 function normalizeTaskPriority(raw) {
   if (!raw)
     return void 0;
@@ -53,6 +55,14 @@ function normalizeTaskPriority(raw) {
     return "low";
   return void 0;
 }
+function cleanTaskContentText(line) {
+  const withoutCheckbox = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "");
+  const withoutFields = withoutCheckbox.replace(INLINE_FIELD_RE, " ").replace(LEGACY_EMOJI_DATE_RE, " ");
+  return withoutFields.split(/\s+/u).filter((part) => part && !part.startsWith("#") && !isPlainEstimateToken(part)).join(" ").replace(/\s+/gu, " ").trim();
+}
+function isPlainEstimateToken(part) {
+  return /^(?:(?:\d+(?:\.\d+)?)h)?(?:(?:\d+)m)?$/u.test(part.toLowerCase()) && /[hm]/iu.test(part);
+}
 
 // src/services/CalendarViewModel.ts
 function buildMonthViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {}, defaultUnestimatedTaskMinutes = 30, sourceGroupState = {}, paceDate = todayString()) {
@@ -62,7 +72,7 @@ function buildMonthViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {
 function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}, paceDate) {
   const activeTasks = tasks.filter((task2) => !task2.completed);
   const activeTasksById = new Map(activeTasks.map((task2) => [task2.id, task2]));
-  const recurringLoadTasks = activeTasks.filter(isRecurringLoadTask);
+  const recurringLoadTasks = mode === "week" ? dedupeWeekRecurringLoadTasks(activeTasks.filter(isRecurringLoadTask)) : activeTasks.filter(isRecurringLoadTask);
   const concreteActiveTasks = activeTasks.filter((task2) => !isRecurringLoadTask(task2));
   const loadTasks = (mode === "month" ? tasks : activeTasks).filter((task2) => !isRecurringLoadTask(task2));
   const pointTasks = concreteActiveTasks.filter((task2) => task2.taskKind !== "long");
@@ -425,6 +435,36 @@ function addRecurringTaskLoads(days, dayLoads, tasks, tasksById, defaultUnestima
     }
   }
 }
+function dedupeWeekRecurringLoadTasks(tasks) {
+  const latestByKey = /* @__PURE__ */ new Map();
+  for (const task2 of tasks) {
+    const key = recurringDedupeKey(task2);
+    const existing = latestByKey.get(key);
+    if (!existing || compareRecurringTaskStart(task2, existing) > 0) {
+      latestByKey.set(key, task2);
+    }
+  }
+  return [...latestByKey.values()];
+}
+function recurringDedupeKey(task2) {
+  const content = (cleanTaskContentText(task2.rawLine) || task2.text).toLowerCase().replace(/\s+/gu, " ").trim();
+  const recurrence = task2.recurrence?.trim().toLowerCase().replace(/\s+/gu, " ") ?? "";
+  const context = task2.parentLongTaskId ?? task2.filePath;
+  return `${context}
+${recurrence}
+${content}`;
+}
+function compareRecurringTaskStart(left, right) {
+  const leftStart = isValidDate(left.dates.start) ? left.dates.start : "";
+  const rightStart = isValidDate(right.dates.start) ? right.dates.start : "";
+  const startCompare = leftStart.localeCompare(rightStart);
+  if (startCompare !== 0)
+    return startCompare;
+  const lineCompare = left.lineNumber - right.lineNumber;
+  if (lineCompare !== 0)
+    return lineCompare;
+  return left.id.localeCompare(right.id);
+}
 function recurringEndDate(task2, tasksById) {
   if (task2.dates.scheduled)
     return task2.dates.scheduled;
@@ -453,6 +493,9 @@ function parseDateParts(date) {
     month: Number.parseInt(match[2], 10),
     day: Number.parseInt(match[3], 10)
   };
+}
+function isValidDate(date) {
+  return Boolean(date && parseDateParts(date));
 }
 function dayOfWeek(date) {
   return (/* @__PURE__ */ new Date(`${date}T00:00:00`)).getDay();
@@ -596,7 +639,9 @@ var settings = {
   reviewCharsPerMinute: 800,
   defaultUnestimatedTaskMinutes: 30,
   monthHeatmapMode: "task-estimate-plus-review",
-  scheduledDayFolder: "\u89C4\u5212/\u65E5"
+  scheduledDayFolder: "\u89C4\u5212/\u65E5",
+  archiveHeading: "\u5F52\u6863",
+  scheduleInPlacePathPrefixes: ["\u89C4\u5212/\u9636\u6BB5"]
 };
 (0, import_node_test.test)("builds AI schedule context with stable horizons and planning signals", () => {
   const reviewPressure = {

@@ -3,13 +3,15 @@ import { DEFAULT_DATA, VIEW_TYPE_PERSONAL_SYSTEM } from "./models/constants";
 import type { CalendarBridgeData, CalendarTask, ReviewPressureByDate } from "./models/types";
 import { AI_SCHEDULE_CONTEXT_PATH, AiScheduleContextExporter } from "./services/AiScheduleContext";
 import { ReviewPressureScanner } from "./services/ReviewPressure";
+import { TaskArchiveService } from "./services/TaskArchiveService";
 import { TaskDateWriter } from "./services/TaskDateWriter";
 import { isScheduledPointTask } from "./services/TaskPlanningGuards";
 import { TaskScanner } from "./services/TaskScanner";
 import { PersonalSystemView } from "./ui/PersonalSystemView";
+import { TaskArchiveModal, type TaskArchiveCandidate } from "./ui/TaskArchiveModal";
 import { PersonalSystemSettingTab } from "./ui/settings/PersonalSystemSettingTab";
 import { todayString } from "./utils/date";
-import { normalizeCalendarPathSettings } from "./utils/pathSettings";
+import { matchesAnyPathPrefix, normalizeCalendarPathSettings } from "./utils/pathSettings";
 
 export default class PersonalSchedulerPlugin extends Plugin {
   data: CalendarBridgeData = createDefaultData();
@@ -17,6 +19,7 @@ export default class PersonalSchedulerPlugin extends Plugin {
   reviewPressure: ReviewPressureByDate = {};
   taskScanner!: TaskScanner;
   taskDateWriter!: TaskDateWriter;
+  taskArchiveService!: TaskArchiveService;
   reviewPressureScanner!: ReviewPressureScanner;
   aiScheduleContextExporter!: AiScheduleContextExporter;
   private rescanInFlight: Promise<void> | null = null;
@@ -27,6 +30,7 @@ export default class PersonalSchedulerPlugin extends Plugin {
     this.data = mergeCalendarData(await this.loadData());
     this.taskScanner = new TaskScanner(this.app, () => this.data.settings);
     this.taskDateWriter = new TaskDateWriter(this.app);
+    this.taskArchiveService = new TaskArchiveService(this.app);
     this.reviewPressureScanner = new ReviewPressureScanner(this.app, () => this.data.settings);
     this.aiScheduleContextExporter = new AiScheduleContextExporter(this.app);
 
@@ -148,6 +152,17 @@ export default class PersonalSchedulerPlugin extends Plugin {
       await this.rescanTasks();
       return;
     }
+    if (this.shouldScheduleTaskInPlace(task)) {
+      await this.taskDateWriter.setPointSchedule(
+        target.file,
+        target.lineNumber,
+        scheduledDate,
+        this.data.settings.defaultUnestimatedTaskMinutes,
+        todayString()
+      );
+      await this.rescanTasks();
+      return;
+    }
     await this.taskDateWriter.movePointTaskToScheduledDay(
       target.file,
       target.lineNumber,
@@ -201,6 +216,24 @@ export default class PersonalSchedulerPlugin extends Plugin {
     await this.rescanTasks();
   }
 
+  openTaskArchiveModal(): void {
+    new TaskArchiveModal(this.app, {
+      candidates: this.getArchiveCandidates(),
+      onArchive: (filePaths) => this.archiveCompletedTasksInNotes(filePaths)
+    }).open();
+  }
+
+  async archiveCompletedTasksInNotes(filePaths: string[]): Promise<number> {
+    let archivedCount = 0;
+    for (const filePath of filePaths) {
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile)) continue;
+      archivedCount += await this.taskArchiveService.archiveCompletedTopLevelTasks(file, this.data.settings.archiveHeading);
+    }
+    await this.rescanTasks();
+    return archivedCount;
+  }
+
   async openTaskSourceNote(taskId: string): Promise<void> {
     const target = this.resolveTaskRef(taskId);
     if (!target) return;
@@ -233,6 +266,29 @@ export default class PersonalSchedulerPlugin extends Plugin {
       return null;
     }
     return { file, lineNumber };
+  }
+
+  private shouldScheduleTaskInPlace(task: CalendarTask | undefined): boolean {
+    if (!task) return false;
+    return matchesAnyPathPrefix(task.filePath, this.data.settings.scheduleInPlacePathPrefixes);
+  }
+
+  private getArchiveCandidates(): TaskArchiveCandidate[] {
+    const byFile = new Map<string, TaskArchiveCandidate>();
+    for (const task of this.calendarTasks) {
+      if (!task.completed || task.indentLevel !== 0) continue;
+      const existing = byFile.get(task.filePath);
+      if (existing) {
+        existing.completedTopLevelCount += 1;
+        continue;
+      }
+      byFile.set(task.filePath, {
+        filePath: task.filePath,
+        fileName: task.filePath.split("/").pop() ?? task.filePath,
+        completedTopLevelCount: 1
+      });
+    }
+    return [...byFile.values()].sort((left, right) => left.filePath.localeCompare(right.filePath));
   }
 
   private reportStartupScanFailure(error: unknown): void {

@@ -70,6 +70,39 @@ export class ItemView {
   }
 }
 
+export class Modal {
+  app: any;
+  contentEl: any;
+
+  constructor(app: any) {
+    this.app = app;
+    this.contentEl = {
+      empty: () => undefined,
+      createEl: () => ({
+        addEventListener: () => undefined
+      }),
+      createDiv: () => ({
+        createEl: () => ({
+          addEventListener: () => undefined
+        }),
+        createDiv: () => undefined
+      })
+    };
+  }
+
+  open(): void {
+    this.onOpen();
+  }
+
+  close(): void {
+    this.onClose();
+  }
+
+  onOpen(): void {}
+
+  onClose(): void {}
+}
+
 export class TFile {
   path: string;
   extension: string;

@@ -212,6 +212,76 @@ test("scheduling a child of a long task keeps the child in its source note", asy
   assert.deepEqual(calls, ["set:1:2026-06-20", "rescan"]);
 });
 
+test("scheduling tasks under configured in-place folders keeps them in the source note", async () => {
+  const PluginCtor = PersonalSchedulerPlugin as unknown as { new (): PersonalSchedulerPlugin };
+  const plugin = new PluginCtor();
+  const file = new TFile();
+  (file as unknown as { path: string }).path = "规划/阶段/Project.md";
+  const calls: string[] = [];
+  (plugin as any).app = {
+    vault: {
+      getAbstractFileByPath: (path: string) => path === "规划/阶段/Project.md" ? file : null
+    }
+  };
+  plugin.data.settings.scheduledDayFolder = "Calendar/Scheduled";
+  plugin.data.settings.scheduleInPlacePathPrefixes = ["规划/阶段"];
+  plugin.calendarTasks = [task("规划/阶段/Project.md:3", {
+    filePath: "规划/阶段/Project.md",
+    lineNumber: 3
+  })];
+  (plugin as any).taskDateWriter = {
+    setPointSchedule: async (targetFile: TFile, lineNumber: number, scheduledDate: string) => {
+      assert.equal(targetFile, file);
+      calls.push(`set:${lineNumber}:${scheduledDate}`);
+    },
+    movePointTaskToScheduledDay: async () => {
+      calls.push("move");
+    }
+  };
+  (plugin as any).rescanTasks = async () => {
+    calls.push("rescan");
+  };
+
+  await plugin.scheduleTaskDate("规划/阶段/Project.md:3", "2026-06-20");
+
+  assert.deepEqual(calls, ["set:3:2026-06-20", "rescan"]);
+});
+
+test("scheduling ordinary source tasks still moves them into scheduled day notes", async () => {
+  const PluginCtor = PersonalSchedulerPlugin as unknown as { new (): PersonalSchedulerPlugin };
+  const plugin = new PluginCtor();
+  const file = new TFile();
+  (file as unknown as { path: string }).path = "Inbox.md";
+  const calls: string[] = [];
+  (plugin as any).app = {
+    vault: {
+      getAbstractFileByPath: (path: string) => path === "Inbox.md" ? file : null
+    }
+  };
+  plugin.data.settings.scheduledDayFolder = "Calendar/Scheduled";
+  plugin.data.settings.scheduleInPlacePathPrefixes = ["规划/阶段"];
+  plugin.calendarTasks = [task("Inbox.md:2", {
+    filePath: "Inbox.md",
+    lineNumber: 2
+  })];
+  (plugin as any).taskDateWriter = {
+    setPointSchedule: async () => {
+      calls.push("set");
+    },
+    movePointTaskToScheduledDay: async (targetFile: TFile, lineNumber: number, folder: string, scheduledDate: string) => {
+      assert.equal(targetFile, file);
+      calls.push(`move:${lineNumber}:${folder}:${scheduledDate}`);
+    }
+  };
+  (plugin as any).rescanTasks = async () => {
+    calls.push("rescan");
+  };
+
+  await plugin.scheduleTaskDate("Inbox.md:2", "2026-06-20");
+
+  assert.deepEqual(calls, ["move:2:Calendar/Scheduled:2026-06-20", "rescan"]);
+});
+
 function task(id: string, overrides: Partial<CalendarTask> = {}): CalendarTask {
   return {
     id,

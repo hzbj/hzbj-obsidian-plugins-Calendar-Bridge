@@ -60,6 +60,8 @@ export interface CalendarSettings {
   defaultUnestimatedTaskMinutes: number;
   monthHeatmapMode: MonthHeatmapMode;
   scheduledDayFolder: string;
+  archiveHeading: string;
+  scheduleInPlacePathPrefixes: string[];
 }
 
 export interface CalendarBridgeData {

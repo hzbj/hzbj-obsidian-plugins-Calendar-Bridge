@@ -12,7 +12,7 @@ import type {
   WeekDayRow
 } from "../models/types";
 import { addDays, monthGridDates, todayString, weekDates } from "../utils/date";
-import { normalizeTaskPriority } from "../utils/DataviewTaskDate";
+import { cleanTaskContentText, normalizeTaskPriority } from "../utils/DataviewTaskDate";
 
 export function buildMonthViewModel(
   anchorDate: string,
@@ -51,7 +51,9 @@ function buildViewModel(
 ): CalendarViewModel {
   const activeTasks = tasks.filter((task) => !task.completed);
   const activeTasksById = new Map(activeTasks.map((task) => [task.id, task]));
-  const recurringLoadTasks = activeTasks.filter(isRecurringLoadTask);
+  const recurringLoadTasks = mode === "week"
+    ? dedupeWeekRecurringLoadTasks(activeTasks.filter(isRecurringLoadTask))
+    : activeTasks.filter(isRecurringLoadTask);
   const concreteActiveTasks = activeTasks.filter((task) => !isRecurringLoadTask(task));
   // Month pressure is a historical record; completing a point task should not erase its scheduled load.
   const loadTasks = (mode === "month" ? tasks : activeTasks).filter((task) => !isRecurringLoadTask(task));
@@ -438,6 +440,35 @@ function addRecurringTaskLoads(
   }
 }
 
+function dedupeWeekRecurringLoadTasks(tasks: CalendarTask[]): CalendarTask[] {
+  const latestByKey = new Map<string, CalendarTask>();
+  for (const task of tasks) {
+    const key = recurringDedupeKey(task);
+    const existing = latestByKey.get(key);
+    if (!existing || compareRecurringTaskStart(task, existing) > 0) {
+      latestByKey.set(key, task);
+    }
+  }
+  return [...latestByKey.values()];
+}
+
+function recurringDedupeKey(task: CalendarTask): string {
+  const content = (cleanTaskContentText(task.rawLine) || task.text).toLowerCase().replace(/\s+/gu, " ").trim();
+  const recurrence = task.recurrence?.trim().toLowerCase().replace(/\s+/gu, " ") ?? "";
+  const context = task.parentLongTaskId ?? task.filePath;
+  return `${context}\n${recurrence}\n${content}`;
+}
+
+function compareRecurringTaskStart(left: CalendarTask, right: CalendarTask): number {
+  const leftStart = isValidDate(left.dates.start) ? left.dates.start as string : "";
+  const rightStart = isValidDate(right.dates.start) ? right.dates.start as string : "";
+  const startCompare = leftStart.localeCompare(rightStart);
+  if (startCompare !== 0) return startCompare;
+  const lineCompare = left.lineNumber - right.lineNumber;
+  if (lineCompare !== 0) return lineCompare;
+  return left.id.localeCompare(right.id);
+}
+
 function recurringEndDate(task: CalendarTask, tasksById: Map<string, CalendarTask>): string | undefined {
   if (task.dates.scheduled) return task.dates.scheduled;
   const parent = task.parentLongTaskId ? tasksById.get(task.parentLongTaskId) : undefined;
@@ -464,6 +495,10 @@ function parseDateParts(date: string): { year: number; month: number; day: numbe
     month: Number.parseInt(match[2], 10),
     day: Number.parseInt(match[3], 10)
   };
+}
+
+function isValidDate(date: string | undefined): boolean {
+  return Boolean(date && parseDateParts(date));
 }
 
 function dayOfWeek(date: string): number {

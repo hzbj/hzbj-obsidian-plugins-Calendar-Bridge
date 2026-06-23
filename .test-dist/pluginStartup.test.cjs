@@ -56,6 +56,35 @@ var ItemView = class {
     this.containerEl = { children: [{}, {}] };
   }
 };
+var Modal = class {
+  app;
+  contentEl;
+  constructor(app) {
+    this.app = app;
+    this.contentEl = {
+      empty: () => void 0,
+      createEl: () => ({
+        addEventListener: () => void 0
+      }),
+      createDiv: () => ({
+        createEl: () => ({
+          addEventListener: () => void 0
+        }),
+        createDiv: () => void 0
+      })
+    };
+  }
+  open() {
+    this.onOpen();
+  }
+  close() {
+    this.onClose();
+  }
+  onOpen() {
+  }
+  onClose() {
+  }
+};
 var TFile = class {
   path;
   extension;
@@ -102,7 +131,9 @@ var DEFAULT_DATA = {
     reviewCharsPerMinute: 800,
     defaultUnestimatedTaskMinutes: 30,
     monthHeatmapMode: "task-estimate-plus-review",
-    scheduledDayFolder: "Calendar/Scheduled"
+    scheduledDayFolder: "Calendar/Scheduled",
+    archiveHeading: "\u5F52\u6863",
+    scheduleInPlacePathPrefixes: ["\u89C4\u5212/\u9636\u6BB5"]
   },
   ui: {
     sourceTaskGroups: {
@@ -404,7 +435,7 @@ function buildWeekViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {}
 function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}, paceDate) {
   const activeTasks = tasks.filter((task2) => !task2.completed);
   const activeTasksById = new Map(activeTasks.map((task2) => [task2.id, task2]));
-  const recurringLoadTasks = activeTasks.filter(isRecurringLoadTask);
+  const recurringLoadTasks = mode === "week" ? dedupeWeekRecurringLoadTasks(activeTasks.filter(isRecurringLoadTask)) : activeTasks.filter(isRecurringLoadTask);
   const concreteActiveTasks = activeTasks.filter((task2) => !isRecurringLoadTask(task2));
   const loadTasks = (mode === "month" ? tasks : activeTasks).filter((task2) => !isRecurringLoadTask(task2));
   const pointTasks = concreteActiveTasks.filter((task2) => task2.taskKind !== "long");
@@ -767,6 +798,36 @@ function addRecurringTaskLoads(days, dayLoads, tasks, tasksById, defaultUnestima
     }
   }
 }
+function dedupeWeekRecurringLoadTasks(tasks) {
+  const latestByKey = /* @__PURE__ */ new Map();
+  for (const task2 of tasks) {
+    const key = recurringDedupeKey(task2);
+    const existing = latestByKey.get(key);
+    if (!existing || compareRecurringTaskStart(task2, existing) > 0) {
+      latestByKey.set(key, task2);
+    }
+  }
+  return [...latestByKey.values()];
+}
+function recurringDedupeKey(task2) {
+  const content = (cleanTaskContentText(task2.rawLine) || task2.text).toLowerCase().replace(/\s+/gu, " ").trim();
+  const recurrence = task2.recurrence?.trim().toLowerCase().replace(/\s+/gu, " ") ?? "";
+  const context = task2.parentLongTaskId ?? task2.filePath;
+  return `${context}
+${recurrence}
+${content}`;
+}
+function compareRecurringTaskStart(left, right) {
+  const leftStart = isValidDate(left.dates.start) ? left.dates.start : "";
+  const rightStart = isValidDate(right.dates.start) ? right.dates.start : "";
+  const startCompare = leftStart.localeCompare(rightStart);
+  if (startCompare !== 0)
+    return startCompare;
+  const lineCompare = left.lineNumber - right.lineNumber;
+  if (lineCompare !== 0)
+    return lineCompare;
+  return left.id.localeCompare(right.id);
+}
 function recurringEndDate(task2, tasksById) {
   if (task2.dates.scheduled)
     return task2.dates.scheduled;
@@ -795,6 +856,9 @@ function parseDateParts(date) {
     month: Number.parseInt(match[2], 10),
     day: Number.parseInt(match[3], 10)
   };
+}
+function isValidDate(date) {
+  return Boolean(date && parseDateParts(date));
 }
 function dayOfWeek(date) {
   return (/* @__PURE__ */ new Date(`${date}T00:00:00`)).getDay();
@@ -1001,6 +1065,83 @@ function countContentChars(body) {
 }
 function isExcludedPath(filePath, prefixes) {
   return prefixes.some((prefix) => filePath === prefix.replace(/\/$/u, "") || filePath.startsWith(prefix));
+}
+
+// src/services/TaskArchiveService.ts
+var TOP_LEVEL_COMPLETED_TASK_RE = /^[-*]\s+\[[xX]\]\s+/u;
+function archiveCompletedTopLevelTasks(content, rawHeading) {
+  const heading = normalizeArchiveHeading(rawHeading);
+  const lines = content.split(/\r?\n/u);
+  const originalHeadingInfo = findHeading(lines, heading);
+  const originalArchiveStart = originalHeadingInfo ? originalHeadingInfo.index + 1 : -1;
+  const originalArchiveEnd = originalHeadingInfo ? findHeadingSectionEnd(lines, originalHeadingInfo.index, originalHeadingInfo.level) : -1;
+  const moved = [];
+  const kept = lines.filter((line, index) => {
+    if (index >= originalArchiveStart && index < originalArchiveEnd)
+      return true;
+    if (!TOP_LEVEL_COMPLETED_TASK_RE.test(line))
+      return true;
+    moved.push(line);
+    return false;
+  });
+  if (moved.length === 0)
+    return { content, archivedCount: 0 };
+  const headingInfo = findHeading(kept, heading);
+  if (!headingInfo) {
+    const base = trimTrailingBlankLines(kept);
+    return {
+      content: [...base, "", `# ${heading}`, ...moved].join("\n"),
+      archivedCount: moved.length
+    };
+  }
+  const insertIndex = findHeadingSectionEnd(kept, headingInfo.index, headingInfo.level);
+  const before = trimTrailingBlankLines(kept.slice(0, insertIndex));
+  const after = kept.slice(insertIndex);
+  return {
+    content: [...before, ...moved, ...after].join("\n"),
+    archivedCount: moved.length
+  };
+}
+var TaskArchiveService = class {
+  constructor(app) {
+    this.app = app;
+  }
+  async archiveCompletedTopLevelTasks(file, heading) {
+    const content = await this.app.vault.read(file);
+    const archived = archiveCompletedTopLevelTasks(content, heading);
+    if (archived.archivedCount === 0 || archived.content === content)
+      return archived.archivedCount;
+    await this.app.vault.modify(file, archived.content);
+    return archived.archivedCount;
+  }
+};
+function normalizeArchiveHeading(raw) {
+  return raw.trim().replace(/^#+\s*/u, "").trim() || "\u5F52\u6863";
+}
+function findHeading(lines, heading) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(#{1,6})\s+(.+?)\s*#*\s*$/u);
+    if (!match)
+      continue;
+    if (match[2].trim() === heading)
+      return { index, level: match[1].length };
+  }
+  return void 0;
+}
+function findHeadingSectionEnd(lines, headingIndex, headingLevel) {
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(#{1,6})\s+/u);
+    if (match && match[1].length <= headingLevel)
+      return index;
+  }
+  return lines.length;
+}
+function trimTrailingBlankLines(lines) {
+  const trimmed = [...lines];
+  while (trimmed.length > 0 && trimmed[trimmed.length - 1].trim() === "") {
+    trimmed.pop();
+  }
+  return trimmed;
 }
 
 // src/services/TaskDateWriter.ts
@@ -1927,6 +2068,19 @@ function normalizeCalendarPathSettings(settings) {
   settings.includedPathPrefixes = settings.includedPathPrefixes.map(normalizePathSetting).filter(Boolean);
   settings.excludedPathPrefixes = settings.excludedPathPrefixes.map(normalizePathSetting).filter(Boolean);
   settings.scheduledDayFolder = normalizePathSetting(settings.scheduledDayFolder) || "Calendar/Scheduled";
+  settings.archiveHeading = settings.archiveHeading?.trim() || "\u5F52\u6863";
+  settings.scheduleInPlacePathPrefixes = (settings.scheduleInPlacePathPrefixes ?? ["\u89C4\u5212/\u9636\u6BB5"]).map(normalizePathSetting).filter(Boolean);
+}
+function matchesAnyPathPrefix(filePath, prefixes) {
+  return prefixes.some((prefix) => matchesPathPrefix2(filePath, prefix));
+}
+function matchesPathPrefix2(filePath, prefix) {
+  const normalizedFilePath = normalizePathSetting(filePath);
+  const normalizedPrefix = normalizePathSetting(prefix);
+  if (!normalizedPrefix)
+    return false;
+  const folder = normalizedPrefix.replace(/\/$/u, "");
+  return normalizedFilePath === folder || normalizedFilePath.startsWith(`${folder}/`);
 }
 
 // src/ui/pages/SettingsPage.ts
@@ -1952,6 +2106,14 @@ function renderSettingsPage(container, plugin) {
   });
   addTextSetting(panel, "Scheduled day folder", plugin.data.settings.scheduledDayFolder, async (value) => {
     plugin.data.settings.scheduledDayFolder = normalizePathSetting(value) || "Calendar/Scheduled";
+    await plugin.saveCalendarData();
+  });
+  addTextSetting(panel, "Schedule-in-place folders", plugin.data.settings.scheduleInPlacePathPrefixes.join(","), async (value) => {
+    plugin.data.settings.scheduleInPlacePathPrefixes = splitPathCsv(value, ["\u89C4\u5212/\u9636\u6BB5"]);
+    await plugin.saveCalendarData();
+  });
+  addTextSetting(panel, "Archive heading", plugin.data.settings.archiveHeading, async (value) => {
+    plugin.data.settings.archiveHeading = value.trim() || "\u5F52\u6863";
     await plugin.saveCalendarData();
   });
   addToggleSetting(panel, "Read legacy emoji dates", plugin.data.settings.readLegacyEmojiDates, async (value) => {
@@ -2298,6 +2460,7 @@ var PersonalSystemView = class extends ItemView {
     const nav = root.createDiv({ cls: "ps-top-nav" });
     this.addNavButton(nav, "month", "\u6708\u89C6\u56FE");
     this.addNavButton(nav, "week", "\u5468\u89C6\u56FE");
+    nav.createEl("button", { cls: "ps-nav-button", text: "\u5F52\u6863" }).addEventListener("click", () => this.plugin.openTaskArchiveModal());
     this.addNavButton(nav, "settings", "\u8BBE\u7F6E");
     const page = root.createDiv({ cls: "ps-page" });
     const context = {
@@ -2323,6 +2486,151 @@ var PersonalSystemView = class extends ItemView {
     });
   }
 };
+
+// src/ui/TaskArchiveModal.ts
+var TaskArchiveModal = class extends Modal {
+  constructor(app, options) {
+    super(app);
+    this.options = options;
+    this.selected = /* @__PURE__ */ new Set();
+    this.collapsed = /* @__PURE__ */ new Set();
+    for (const candidate of options.candidates) {
+      this.selected.add(candidate.filePath);
+    }
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("cb-archive-modal");
+    contentEl.createEl("h2", { text: "\u5F52\u6863\u5DF2\u5B8C\u6210\u4EFB\u52A1" });
+    if (this.options.candidates.length === 0) {
+      contentEl.createDiv({ cls: "cb-empty", text: "\u6CA1\u6709\u53EF\u5F52\u6863\u7684\u5DF2\u5B8C\u6210\u9876\u5C42\u4EFB\u52A1\u3002" });
+      return;
+    }
+    this.renderSummary(contentEl);
+    this.renderCandidateGroups(contentEl);
+    const actions = contentEl.createDiv({ cls: "cb-menu-actions" });
+    actions.createEl("button", { text: "\u5F52\u6863" }).addEventListener("click", () => void this.archiveSelected());
+    actions.createEl("button", { text: "\u53D6\u6D88" }).addEventListener("click", () => this.close());
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+  async archiveSelected() {
+    const filePaths = [...this.selected];
+    if (filePaths.length === 0) {
+      new Notice("\u8BF7\u9009\u62E9\u8981\u5F52\u6863\u7684\u7B14\u8BB0\u3002");
+      return;
+    }
+    const archivedCount = await this.options.onArchive(filePaths);
+    new Notice(`\u5DF2\u5F52\u6863 ${archivedCount} \u4E2A\u4EFB\u52A1\u3002`);
+    this.close();
+  }
+  renderSummary(parent) {
+    const selectedCount = this.selected.size;
+    const totalCount = this.options.candidates.length;
+    const selectedTasks = this.options.candidates.filter((candidate) => this.selected.has(candidate.filePath)).reduce((sum, candidate) => sum + candidate.completedTopLevelCount, 0);
+    parent.createDiv({
+      cls: "cb-archive-summary",
+      text: `${selectedCount}/${totalCount} notes selected \xB7 ${selectedTasks} completed tasks`
+    });
+  }
+  renderCandidateGroups(parent) {
+    const list = parent.createDiv({ cls: "cb-archive-note-list" });
+    for (const group of groupArchiveCandidates(this.options.candidates)) {
+      this.renderCandidateGroup(list, group);
+    }
+  }
+  renderCandidateGroup(parent, group) {
+    const section = parent.createDiv({ cls: "cb-archive-folder-group" });
+    const header = section.createDiv({ cls: "cb-archive-folder-header" });
+    const groupCheckbox = header.createEl("input");
+    groupCheckbox.type = "checkbox";
+    groupCheckbox.checked = group.candidates.every((candidate) => this.selected.has(candidate.filePath));
+    groupCheckbox.addEventListener("click", (event) => event.stopPropagation());
+    groupCheckbox.addEventListener("change", () => {
+      for (const candidate of group.candidates) {
+        if (groupCheckbox.checked)
+          this.selected.add(candidate.filePath);
+        else
+          this.selected.delete(candidate.filePath);
+      }
+      this.onOpen();
+    });
+    header.createSpan({ cls: "cb-archive-folder-caret", text: this.collapsed.has(group.folderPath) ? ">" : "v" });
+    const title = header.createDiv({ cls: "cb-archive-folder-title" });
+    title.createDiv({ cls: "cb-archive-folder-name", text: group.folderName });
+    title.createDiv({ cls: "cb-archive-folder-path", text: group.folderPath });
+    header.createDiv({
+      cls: "cb-archive-folder-count",
+      text: `${this.selectedCountForGroup(group)}/${group.candidates.length} notes \xB7 ${group.completedTopLevelCount} tasks`
+    });
+    header.addEventListener("click", () => {
+      if (this.collapsed.has(group.folderPath))
+        this.collapsed.delete(group.folderPath);
+      else
+        this.collapsed.add(group.folderPath);
+      this.onOpen();
+    });
+    if (this.collapsed.has(group.folderPath))
+      return;
+    const rows = section.createDiv({ cls: "cb-archive-folder-rows" });
+    for (const candidate of group.candidates) {
+      this.renderCandidateRow(rows, candidate);
+    }
+  }
+  renderCandidateRow(parent, candidate) {
+    const row = parent.createDiv({ cls: "cb-archive-note-row" });
+    row.toggleClass("is-selected", this.selected.has(candidate.filePath));
+    const checkbox = row.createEl("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = this.selected.has(candidate.filePath);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked)
+        this.selected.add(candidate.filePath);
+      else
+        this.selected.delete(candidate.filePath);
+      this.onOpen();
+    });
+    const text = row.createDiv({ cls: "cb-archive-note-text" });
+    text.createDiv({ cls: "cb-archive-note-title", text: candidate.fileName });
+    text.createDiv({ cls: "cb-archive-note-path", text: candidate.filePath });
+    row.createDiv({ cls: "cb-archive-note-count", text: `${candidate.completedTopLevelCount}` });
+  }
+  selectedCountForGroup(group) {
+    return group.candidates.filter((candidate) => this.selected.has(candidate.filePath)).length;
+  }
+};
+function groupArchiveCandidates(candidates) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const candidate of candidates) {
+    const folderPath = parentFolderPath(candidate.filePath);
+    const group = groups.get(folderPath) ?? [];
+    group.push(candidate);
+    groups.set(folderPath, group);
+  }
+  return [...groups.entries()].sort(([left], [right]) => {
+    if (left === "Vault root" && right !== "Vault root")
+      return -1;
+    if (right === "Vault root" && left !== "Vault root")
+      return 1;
+    return left.localeCompare(right);
+  }).map(([folderPath, groupCandidates]) => ({
+    folderPath,
+    folderName: folderName(folderPath),
+    candidates: [...groupCandidates].sort((left, right) => left.fileName.localeCompare(right.fileName)),
+    completedTopLevelCount: groupCandidates.reduce((sum, candidate) => sum + candidate.completedTopLevelCount, 0)
+  }));
+}
+function parentFolderPath(filePath) {
+  const index = filePath.lastIndexOf("/");
+  return index < 0 ? "Vault root" : filePath.slice(0, index);
+}
+function folderName(folderPath) {
+  if (folderPath === "Vault root")
+    return folderPath;
+  return folderPath.split("/").pop() ?? folderPath;
+}
 
 // src/ui/settings/PersonalSystemSettingTab.ts
 var PersonalSystemSettingTab = class extends PluginSettingTab {
@@ -2356,6 +2664,14 @@ var PersonalSystemSettingTab = class extends PluginSettingTab {
     }));
     new Setting(containerEl).setName("Scheduled day folder").setDesc("Point tasks scheduled from the month view move into YYYYMMDD.md files in this folder.").addText((text) => text.setValue(this.plugin.data.settings.scheduledDayFolder).onChange(async (value) => {
       this.plugin.data.settings.scheduledDayFolder = normalizePathSetting(value) || "Calendar/Scheduled";
+      await this.plugin.saveCalendarData();
+    }));
+    new Setting(containerEl).setName("Schedule-in-place folders").setDesc("Tasks in these folders keep their original note when scheduled. Separate multiple folders with commas.").addText((text) => text.setValue(this.plugin.data.settings.scheduleInPlacePathPrefixes.join(",")).onChange(async (value) => {
+      this.plugin.data.settings.scheduleInPlacePathPrefixes = splitPathCsv(value, ["\u89C4\u5212/\u9636\u6BB5"]);
+      await this.plugin.saveCalendarData();
+    }));
+    new Setting(containerEl).setName("Archive heading").setDesc("Completed top-level tasks are moved under this heading in the same note.").addText((text) => text.setValue(this.plugin.data.settings.archiveHeading).onChange(async (value) => {
+      this.plugin.data.settings.archiveHeading = value.trim() || "\u5F52\u6863";
       await this.plugin.saveCalendarData();
     }));
     new Setting(containerEl).setName("spaced-review pressure").setDesc("Read spaced-review notes and include review pressure in calendar load.").addToggle((toggle) => toggle.setValue(this.plugin.data.settings.reviewPressureEnabled).onChange(async (value) => {
@@ -2399,6 +2715,7 @@ var PersonalSchedulerPlugin = class extends Plugin {
     this.data = mergeCalendarData(await this.loadData());
     this.taskScanner = new TaskScanner(this.app, () => this.data.settings);
     this.taskDateWriter = new TaskDateWriter(this.app);
+    this.taskArchiveService = new TaskArchiveService(this.app);
     this.reviewPressureScanner = new ReviewPressureScanner(this.app, () => this.data.settings);
     this.aiScheduleContextExporter = new AiScheduleContextExporter(this.app);
     this.registerView(VIEW_TYPE_PERSONAL_SYSTEM, (leaf) => new PersonalSystemView(leaf, this));
@@ -2509,6 +2826,17 @@ var PersonalSchedulerPlugin = class extends Plugin {
       await this.rescanTasks();
       return;
     }
+    if (this.shouldScheduleTaskInPlace(task2)) {
+      await this.taskDateWriter.setPointSchedule(
+        target.file,
+        target.lineNumber,
+        scheduledDate,
+        this.data.settings.defaultUnestimatedTaskMinutes,
+        todayString()
+      );
+      await this.rescanTasks();
+      return;
+    }
     await this.taskDateWriter.movePointTaskToScheduledDay(
       target.file,
       target.lineNumber,
@@ -2561,6 +2889,23 @@ var PersonalSchedulerPlugin = class extends Plugin {
     await this.taskDateWriter.clearSchedule(target.file, target.lineNumber);
     await this.rescanTasks();
   }
+  openTaskArchiveModal() {
+    new TaskArchiveModal(this.app, {
+      candidates: this.getArchiveCandidates(),
+      onArchive: (filePaths) => this.archiveCompletedTasksInNotes(filePaths)
+    }).open();
+  }
+  async archiveCompletedTasksInNotes(filePaths) {
+    let archivedCount = 0;
+    for (const filePath of filePaths) {
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (!(file instanceof TFile))
+        continue;
+      archivedCount += await this.taskArchiveService.archiveCompletedTopLevelTasks(file, this.data.settings.archiveHeading);
+    }
+    await this.rescanTasks();
+    return archivedCount;
+  }
   async openTaskSourceNote(taskId) {
     const target = this.resolveTaskRef(taskId);
     if (!target)
@@ -2593,6 +2938,29 @@ var PersonalSchedulerPlugin = class extends Plugin {
       return null;
     }
     return { file, lineNumber };
+  }
+  shouldScheduleTaskInPlace(task2) {
+    if (!task2)
+      return false;
+    return matchesAnyPathPrefix(task2.filePath, this.data.settings.scheduleInPlacePathPrefixes);
+  }
+  getArchiveCandidates() {
+    const byFile = /* @__PURE__ */ new Map();
+    for (const task2 of this.calendarTasks) {
+      if (!task2.completed || task2.indentLevel !== 0)
+        continue;
+      const existing = byFile.get(task2.filePath);
+      if (existing) {
+        existing.completedTopLevelCount += 1;
+        continue;
+      }
+      byFile.set(task2.filePath, {
+        filePath: task2.filePath,
+        fileName: task2.filePath.split("/").pop() ?? task2.filePath,
+        completedTopLevelCount: 1
+      });
+    }
+    return [...byFile.values()].sort((left, right) => left.filePath.localeCompare(right.filePath));
   }
   reportStartupScanFailure(error) {
     console.error("Calendar Bridge startup task scan failed.", error);
@@ -2806,6 +3174,70 @@ function mergeCalendarData(raw) {
   };
   await plugin.scheduleTaskDate("Plans.md:1", "2026-06-20");
   import_node_assert.strict.deepEqual(calls, ["set:1:2026-06-20", "rescan"]);
+});
+(0, import_node_test.test)("scheduling tasks under configured in-place folders keeps them in the source note", async () => {
+  const PluginCtor = PersonalSchedulerPlugin;
+  const plugin = new PluginCtor();
+  const file = new TFile();
+  file.path = "\u89C4\u5212/\u9636\u6BB5/Project.md";
+  const calls = [];
+  plugin.app = {
+    vault: {
+      getAbstractFileByPath: (path) => path === "\u89C4\u5212/\u9636\u6BB5/Project.md" ? file : null
+    }
+  };
+  plugin.data.settings.scheduledDayFolder = "Calendar/Scheduled";
+  plugin.data.settings.scheduleInPlacePathPrefixes = ["\u89C4\u5212/\u9636\u6BB5"];
+  plugin.calendarTasks = [task("\u89C4\u5212/\u9636\u6BB5/Project.md:3", {
+    filePath: "\u89C4\u5212/\u9636\u6BB5/Project.md",
+    lineNumber: 3
+  })];
+  plugin.taskDateWriter = {
+    setPointSchedule: async (targetFile, lineNumber, scheduledDate) => {
+      import_node_assert.strict.equal(targetFile, file);
+      calls.push(`set:${lineNumber}:${scheduledDate}`);
+    },
+    movePointTaskToScheduledDay: async () => {
+      calls.push("move");
+    }
+  };
+  plugin.rescanTasks = async () => {
+    calls.push("rescan");
+  };
+  await plugin.scheduleTaskDate("\u89C4\u5212/\u9636\u6BB5/Project.md:3", "2026-06-20");
+  import_node_assert.strict.deepEqual(calls, ["set:3:2026-06-20", "rescan"]);
+});
+(0, import_node_test.test)("scheduling ordinary source tasks still moves them into scheduled day notes", async () => {
+  const PluginCtor = PersonalSchedulerPlugin;
+  const plugin = new PluginCtor();
+  const file = new TFile();
+  file.path = "Inbox.md";
+  const calls = [];
+  plugin.app = {
+    vault: {
+      getAbstractFileByPath: (path) => path === "Inbox.md" ? file : null
+    }
+  };
+  plugin.data.settings.scheduledDayFolder = "Calendar/Scheduled";
+  plugin.data.settings.scheduleInPlacePathPrefixes = ["\u89C4\u5212/\u9636\u6BB5"];
+  plugin.calendarTasks = [task("Inbox.md:2", {
+    filePath: "Inbox.md",
+    lineNumber: 2
+  })];
+  plugin.taskDateWriter = {
+    setPointSchedule: async () => {
+      calls.push("set");
+    },
+    movePointTaskToScheduledDay: async (targetFile, lineNumber, folder, scheduledDate) => {
+      import_node_assert.strict.equal(targetFile, file);
+      calls.push(`move:${lineNumber}:${folder}:${scheduledDate}`);
+    }
+  };
+  plugin.rescanTasks = async () => {
+    calls.push("rescan");
+  };
+  await plugin.scheduleTaskDate("Inbox.md:2", "2026-06-20");
+  import_node_assert.strict.deepEqual(calls, ["move:2:Calendar/Scheduled:2026-06-20", "rescan"]);
 });
 function task(id, overrides = {}) {
   return {

@@ -75,6 +75,26 @@ export class PersonalSystemSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
+      .setName("Schedule-in-place folders")
+      .setDesc("Tasks in these folders keep their original note when scheduled. Separate multiple folders with commas.")
+      .addText((text) => text
+        .setValue(this.plugin.data.settings.scheduleInPlacePathPrefixes.join(","))
+        .onChange(async (value) => {
+          this.plugin.data.settings.scheduleInPlacePathPrefixes = splitPathCsv(value, ["规划/阶段"]);
+          await this.plugin.saveCalendarData();
+        }));
+
+    new Setting(containerEl)
+      .setName("Archive heading")
+      .setDesc("Completed top-level tasks are moved under this heading in the same note.")
+      .addText((text) => text
+        .setValue(this.plugin.data.settings.archiveHeading)
+        .onChange(async (value) => {
+          this.plugin.data.settings.archiveHeading = value.trim() || "归档";
+          await this.plugin.saveCalendarData();
+        }));
+
+    new Setting(containerEl)
       .setName("spaced-review pressure")
       .setDesc("Read spaced-review notes and include review pressure in calendar load.")
       .addToggle((toggle) => toggle
