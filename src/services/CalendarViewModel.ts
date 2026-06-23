@@ -51,11 +51,13 @@ function buildViewModel(
 ): CalendarViewModel {
   const activeTasks = tasks.filter((task) => !task.completed);
   const activeTasksById = new Map(activeTasks.map((task) => [task.id, task]));
+  const allTasksById = new Map(tasks.map((task) => [task.id, task]));
   const recurringLoadTasks = mode === "week"
     ? dedupeWeekRecurringLoadTasks(activeTasks.filter(isRecurringLoadTask))
-    : activeTasks.filter(isRecurringLoadTask);
+    : tasks.filter(isRecurringLoadTask);
+  const recurringLoadTaskLookup = mode === "month" ? allTasksById : activeTasksById;
   const concreteActiveTasks = activeTasks.filter((task) => !isRecurringLoadTask(task));
-  // Month pressure is a historical record; completing a point task should not erase its scheduled load.
+  // Month pressure is a historical record; completed point and recurring tasks keep their scheduled load.
   const loadTasks = (mode === "month" ? tasks : activeTasks).filter((task) => !isRecurringLoadTask(task));
   const pointTasks = concreteActiveTasks.filter((task) => task.taskKind !== "long");
   const pointLoadTasks = loadTasks.filter((task) => task.taskKind !== "long");
@@ -89,7 +91,7 @@ function buildViewModel(
     }
   }
 
-  addRecurringTaskLoads(days, dayLoads, recurringLoadTasks, activeTasksById, defaultUnestimatedTaskMinutes);
+  addRecurringTaskLoads(days, dayLoads, recurringLoadTasks, recurringLoadTaskLookup, defaultUnestimatedTaskMinutes);
   for (const load of Object.values(dayLoads)) {
     load.heatScore = load.taskMinutes + load.recurringTaskMinutes + load.reviewMinutes;
   }
@@ -470,9 +472,16 @@ function compareRecurringTaskStart(left: CalendarTask, right: CalendarTask): num
 }
 
 function recurringEndDate(task: CalendarTask, tasksById: Map<string, CalendarTask>): string | undefined {
-  if (task.dates.scheduled) return task.dates.scheduled;
+  const completionEnd = task.completed ? task.dates.completion : undefined;
+  if (task.dates.scheduled) return earlierDate(task.dates.scheduled, completionEnd);
   const parent = task.parentLongTaskId ? tasksById.get(task.parentLongTaskId) : undefined;
-  return parent?.spanEnd ?? parent?.dates.scheduled;
+  return earlierDate(parent?.spanEnd ?? parent?.dates.scheduled, completionEnd);
+}
+
+function earlierDate(left: string | undefined, right: string | undefined): string | undefined {
+  if (!left) return right;
+  if (!right) return left;
+  return left < right ? left : right;
 }
 
 function recursOnDate(startDate: string, date: string, frequency: RecurringFrequency): boolean {

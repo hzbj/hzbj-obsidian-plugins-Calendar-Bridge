@@ -38,6 +38,7 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
   const spanEnd = getRangeEndDate(dates);
   const spanStart = dates.start && spanEnd ? dates.start : void 0;
   const progressPercent = parseProgressPercent(first(metadata.progress));
+  const plannedDate = firstDate(metadata.planned);
   return {
     metadata,
     dates,
@@ -49,6 +50,7 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
     estimateMinutes,
     plainEstimateMinutes,
     progressPercent,
+    plannedDate,
     durationMinutes,
     priority: first(metadata.priority),
     recurrence: first(metadata.recurrence) ?? first(metadata.repeat),
@@ -109,6 +111,9 @@ function firstParsedDuration(values) {
       return parsed;
   }
   return void 0;
+}
+function firstDate(values) {
+  return values?.find((value) => DATE_RE.test(value.trim()))?.trim();
 }
 function extractPlainEstimateMinutes(line) {
   const body = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "").replace(INLINE_FIELD_RE, " ");
@@ -176,6 +181,7 @@ function scanMarkdownTasksFromText(filePath, content, options) {
       estimateMinutes: metadata.estimateMinutes,
       plainEstimateMinutes: metadata.plainEstimateMinutes,
       progressPercent: metadata.progressPercent,
+      plannedDate: metadata.plannedDate,
       durationMinutes: metadata.durationMinutes,
       priority: metadata.priority,
       recurrence: metadata.recurrence,
@@ -367,6 +373,14 @@ function matchesPathPrefix(filePath, prefix) {
   import_node_assert.strict.deepEqual(tasks.map((item) => item.taskKind), ["long", "long", "long"]);
   import_node_assert.strict.deepEqual(tasks.map((item) => item.spanStart), ["2026-06-10", "2026-06-17", "2026-06-20"]);
   import_node_assert.strict.deepEqual(tasks.map((item) => item.spanEnd), ["2026-06-19", "2026-06-17", void 0]);
+});
+(0, import_node_test.test)("scans planned dates onto calendar tasks", () => {
+  const tasks = scanMarkdownTasksFromText("Plans.md", "- [ ] Long #task [start:: 2026-06-20] [scheduled:: 2026-06-30] [planned:: 2026-06-23]", {
+    triggerTags: ["task"],
+    readLegacyEmojiDates: true,
+    forceExtract: false
+  });
+  import_node_assert.strict.equal(tasks[0].plannedDate, "2026-06-23");
 });
 (0, import_node_test.test)("ignores configured excluded path prefixes", () => {
   const tasks = scanMarkdownTasksFromText(

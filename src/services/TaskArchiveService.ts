@@ -6,6 +6,7 @@ export interface ArchiveCompletedTasksResult {
 }
 
 const TOP_LEVEL_COMPLETED_TASK_RE = /^[-*]\s+\[[xX]\]\s+/u;
+const CHECKBOX_TASK_RE = /^(\s*)[-*]\s+\[([ xX])\]\s+/u;
 
 export function archiveCompletedTopLevelTasks(content: string, rawHeading: string): ArchiveCompletedTasksResult {
   const heading = normalizeArchiveHeading(rawHeading);
@@ -14,12 +15,27 @@ export function archiveCompletedTopLevelTasks(content: string, rawHeading: strin
   const originalArchiveStart = originalHeadingInfo ? originalHeadingInfo.index + 1 : -1;
   const originalArchiveEnd = originalHeadingInfo ? findHeadingSectionEnd(lines, originalHeadingInfo.index, originalHeadingInfo.level) : -1;
   const moved: string[] = [];
-  const kept = lines.filter((line, index) => {
-    if (index >= originalArchiveStart && index < originalArchiveEnd) return true;
-    if (!TOP_LEVEL_COMPLETED_TASK_RE.test(line)) return true;
-    moved.push(line);
-    return false;
-  });
+  let archivedCount = 0;
+  const kept: string[] = [];
+
+  for (let index = 0; index < lines.length;) {
+    const line = lines[index];
+    if (index >= originalArchiveStart && index < originalArchiveEnd) {
+      kept.push(line);
+      index += 1;
+      continue;
+    }
+    if (!isCompletedTopLevelTask(line)) {
+      kept.push(line);
+      index += 1;
+      continue;
+    }
+
+    const blockEnd = findTaskBlockEnd(lines, index, 0);
+    moved.push(...lines.slice(index, blockEnd));
+    archivedCount += 1;
+    index = blockEnd;
+  }
 
   if (moved.length === 0) return { content, archivedCount: 0 };
 
@@ -28,7 +44,7 @@ export function archiveCompletedTopLevelTasks(content: string, rawHeading: strin
     const base = trimTrailingBlankLines(kept);
     return {
       content: [...base, "", `# ${heading}`, ...moved].join("\n"),
-      archivedCount: moved.length
+      archivedCount
     };
   }
 
@@ -37,7 +53,7 @@ export function archiveCompletedTopLevelTasks(content: string, rawHeading: strin
   const after = kept.slice(insertIndex);
   return {
     content: [...before, ...moved, ...after].join("\n"),
-    archivedCount: moved.length
+    archivedCount
   };
 }
 
@@ -55,6 +71,23 @@ export class TaskArchiveService {
 
 function normalizeArchiveHeading(raw: string): string {
   return raw.trim().replace(/^#+\s*/u, "").trim() || "归档";
+}
+
+function isCompletedTopLevelTask(line: string): boolean {
+  return TOP_LEVEL_COMPLETED_TASK_RE.test(line);
+}
+
+function findTaskBlockEnd(lines: string[], taskIndex: number, parentIndent: number): number {
+  for (let index = taskIndex + 1; index < lines.length; index += 1) {
+    if (/^(#{1,6})\s+/u.test(lines[index])) return index;
+    const task = lines[index].match(CHECKBOX_TASK_RE);
+    if (task && countIndentColumns(task[1]) <= parentIndent) return index;
+  }
+  return lines.length;
+}
+
+function countIndentColumns(indent: string): number {
+  return [...indent].reduce((columns, char) => columns + (char === "\t" ? 2 : 1), 0);
 }
 
 function findHeading(lines: string[], heading: string): { index: number; level: number } | undefined {

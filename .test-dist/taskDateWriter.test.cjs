@@ -37,6 +37,7 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
   const spanEnd = getRangeEndDate(dates);
   const spanStart = dates.start && spanEnd ? dates.start : void 0;
   const progressPercent = parseProgressPercent(first(metadata.progress));
+  const plannedDate = firstDate(metadata.planned);
   return {
     metadata,
     dates,
@@ -48,6 +49,7 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
     estimateMinutes,
     plainEstimateMinutes,
     progressPercent,
+    plannedDate,
     durationMinutes,
     priority: first(metadata.priority),
     recurrence: first(metadata.recurrence) ?? first(metadata.repeat),
@@ -137,6 +139,9 @@ function firstParsedDuration(values) {
   }
   return void 0;
 }
+function firstDate(values) {
+  return values?.find((value) => DATE_RE.test(value.trim()))?.trim();
+}
 function extractPlainEstimateMinutes(line) {
   const body = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "").replace(INLINE_FIELD_RE, " ");
   for (const part of body.split(/\s+/u)) {
@@ -161,6 +166,7 @@ function parseProgressPercent(raw) {
 }
 
 // src/services/TaskDateWriter.ts
+var CHECKBOX_TASK_RE = /^(\s*)[-*]\s+\[[ xX]\]\s+/u;
 function buildScheduledDayFilePath(folderPath, scheduledDate) {
   const folder = folderPath.trim().replace(/\\/gu, "/").replace(/\/+$/u, "") || "Calendar/Scheduled";
   const fileName = `${scheduledDate.replace(/-/gu, "")}.md`;
@@ -179,6 +185,40 @@ function moveTaskLineToScheduledDayContent(input) {
 ` : ""}${scheduledLine}
 `;
   return { sourceContent, targetContent };
+}
+function insertChildTaskContent(sourceContent, parentLineNumber, rawChildContent) {
+  const childContent = normalizeChildTaskContent(rawChildContent);
+  if (!childContent)
+    throw new Error("Child task content is empty");
+  const lines = sourceContent.split(/\r?\n/u);
+  if (parentLineNumber < 0 || parentLineNumber >= lines.length || lines[parentLineNumber] === void 0) {
+    throw new Error(`Task line ${parentLineNumber} is outside source content`);
+  }
+  const parent = lines[parentLineNumber].match(CHECKBOX_TASK_RE);
+  if (!parent)
+    throw new Error(`Line ${parentLineNumber} is not a task line`);
+  const parentIndent = countIndentColumns(parent[1]);
+  const blockEnd = findTaskBlockEnd(lines, parentLineNumber, parentIndent);
+  const insertIndex = blockEnd === lines.length && lines[lines.length - 1] === "" ? lines.length - 1 : blockEnd;
+  const childIndent = `${parent[1]}  `;
+  lines.splice(insertIndex, 0, `${childIndent}- [ ] ${childContent}`);
+  return lines.join("\n");
+}
+function findTaskBlockEnd(lines, taskIndex, parentIndent) {
+  for (let index = taskIndex + 1; index < lines.length; index += 1) {
+    if (/^(#{1,6})\s+/u.test(lines[index]))
+      return index;
+    const task = lines[index].match(CHECKBOX_TASK_RE);
+    if (task && countIndentColumns(task[1]) <= parentIndent)
+      return index;
+  }
+  return lines.length;
+}
+function countIndentColumns(indent) {
+  return [...indent].reduce((columns, char) => columns + (char === "	" ? 2 : 1), 0);
+}
+function normalizeChildTaskContent(raw) {
+  return raw.replace(/\s+/gu, " ").trim();
 }
 
 // tests/taskDateWriter.test.ts
@@ -205,5 +245,29 @@ function moveTaskLineToScheduledDayContent(input) {
   import_node_assert.strict.equal(
     moved.targetContent,
     "# 20260618\u65E5\n- [ ] Move me #task 30m [context:: phone] [created:: 2026-06-18] [scheduled:: 2026-06-18]\n"
+  );
+});
+(0, import_node_test.test)("inserts child task content at the end of the parent task block", () => {
+  const updated = insertChildTaskContent([
+    "# Plan",
+    "- [ ] Parent #task",
+    "  - [ ] Existing child",
+    "- [ ] Sibling #task"
+  ].join("\n"), 1, "  New child\nwith whitespace  ");
+  import_node_assert.strict.equal(updated, [
+    "# Plan",
+    "- [ ] Parent #task",
+    "  - [ ] Existing child",
+    "  - [ ] New child with whitespace",
+    "- [ ] Sibling #task"
+  ].join("\n"));
+});
+(0, import_node_test.test)("rejects empty child task content", () => {
+  import_node_assert.strict.throws(() => insertChildTaskContent("- [ ] Parent #task", 0, " \n	 "));
+});
+(0, import_node_test.test)("inserts child task content before a final trailing blank line", () => {
+  import_node_assert.strict.equal(
+    insertChildTaskContent("- [ ] Parent #task\n", 0, "New child"),
+    "- [ ] Parent #task\n  - [ ] New child\n"
   );
 });

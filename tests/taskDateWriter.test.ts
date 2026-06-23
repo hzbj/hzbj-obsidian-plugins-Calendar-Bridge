@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
   buildScheduledDayFilePath,
+  insertChildTaskContent,
   moveTaskLineToScheduledDayContent
 } from "../src/services/TaskDateWriter";
 
@@ -30,5 +31,33 @@ test("moves a point task line into daily file content with scheduled fields", ()
   assert.equal(
     moved.targetContent,
     "# 20260618日\n- [ ] Move me #task 30m [context:: phone] [created:: 2026-06-18] [scheduled:: 2026-06-18]\n"
+  );
+});
+
+test("inserts child task content at the end of the parent task block", () => {
+  const updated = insertChildTaskContent([
+    "# Plan",
+    "- [ ] Parent #task",
+    "  - [ ] Existing child",
+    "- [ ] Sibling #task"
+  ].join("\n"), 1, "  New child\nwith whitespace  ");
+
+  assert.equal(updated, [
+    "# Plan",
+    "- [ ] Parent #task",
+    "  - [ ] Existing child",
+    "  - [ ] New child with whitespace",
+    "- [ ] Sibling #task"
+  ].join("\n"));
+});
+
+test("rejects empty child task content", () => {
+  assert.throws(() => insertChildTaskContent("- [ ] Parent #task", 0, " \n\t "));
+});
+
+test("inserts child task content before a final trailing blank line", () => {
+  assert.equal(
+    insertChildTaskContent("- [ ] Parent #task\n", 0, "New child"),
+    "- [ ] Parent #task\n  - [ ] New child\n"
   );
 });

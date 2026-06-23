@@ -25,6 +25,11 @@ interface TimelineRow {
 }
 
 let longRangeDraft: { taskId: string; startDate?: string } | null = null;
+const MONTH_HEAT_MAX_MINUTES = 14 * 60;
+const MONTH_HEAT_MID_MINUTES = MONTH_HEAT_MAX_MINUTES / 2;
+const MONTH_HEAT_GREEN = { r: 54, g: 147, b: 95 };
+const MONTH_HEAT_ORANGE = { r: 208, g: 129, b: 36 };
+const MONTH_HEAT_RED = { r: 191, g: 75, b: 69 };
 
 export function renderMonthPage(container: HTMLElement, plugin: PersonalSchedulerPlugin, context: CalendarPageContext): void {
   container.empty();
@@ -203,7 +208,7 @@ function renderPointMonthGrid(
     const cell = grid.createDiv({ cls: "cb-day-cell" });
     cell.toggleClass("is-outside-month", !day.inCurrentMonth);
     cell.toggleClass("is-today", day.isToday);
-    cell.style.setProperty("--cb-heat", String(Math.min(1, load.heatScore / 360)));
+    applyMonthHeatStyle(cell, load.heatScore);
     setupPointDateTarget(cell, plugin, day.date);
 
     const header = cell.createDiv({ cls: "cb-day-header" });
@@ -232,6 +237,41 @@ function renderDayLoadMetric(parent: HTMLElement, label: string, value: string, 
   const metric = parent.createDiv({ cls: `cb-day-load-summary ${extraClass}` });
   metric.createSpan({ cls: "cb-day-load-label", text: label });
   metric.createSpan({ cls: "cb-day-load-value", text: value });
+}
+
+function applyMonthHeatStyle(cell: HTMLElement, minutes: number): void {
+  const heat = monthHeatStyle(minutes);
+  if (!heat) return;
+  cell.style.setProperty("--cb-heat-r", String(heat.r));
+  cell.style.setProperty("--cb-heat-g", String(heat.g));
+  cell.style.setProperty("--cb-heat-b", String(heat.b));
+  cell.style.setProperty("--cb-heat-alpha", heat.alpha.toFixed(3));
+}
+
+function monthHeatStyle(minutes: number): { r: number; g: number; b: number; alpha: number } | undefined {
+  if (minutes <= 0) return undefined;
+  const clamped = Math.min(minutes, MONTH_HEAT_MAX_MINUTES);
+  const normalized = clamped / MONTH_HEAT_MAX_MINUTES;
+  const color = clamped <= MONTH_HEAT_MID_MINUTES
+    ? interpolateHeatColor(MONTH_HEAT_GREEN, MONTH_HEAT_ORANGE, clamped / MONTH_HEAT_MID_MINUTES)
+    : interpolateHeatColor(MONTH_HEAT_ORANGE, MONTH_HEAT_RED, (clamped - MONTH_HEAT_MID_MINUTES) / MONTH_HEAT_MID_MINUTES);
+  return {
+    ...color,
+    alpha: 0.18 + normalized * 0.16
+  };
+}
+
+function interpolateHeatColor(
+  start: { r: number; g: number; b: number },
+  end: { r: number; g: number; b: number },
+  ratio: number
+): { r: number; g: number; b: number } {
+  const clampedRatio = Math.max(0, Math.min(1, ratio));
+  return {
+    r: Math.round(start.r + (end.r - start.r) * clampedRatio),
+    g: Math.round(start.g + (end.g - start.g) * clampedRatio),
+    b: Math.round(start.b + (end.b - start.b) * clampedRatio)
+  };
 }
 
 function renderWeekdayHeader(parent: HTMLElement, weekStartsOn: 0 | 1): void {
@@ -340,6 +380,7 @@ function renderLongVerticalTask(
 ): void {
   const bar = parent.createDiv({ cls: `cb-long-vertical-bar ${priorityClass(row.task)}` });
   bar.toggleClass("is-behind", row.status === "behind");
+  bar.toggleClass("is-planned-today", isPlannedToday(row.task));
   bar.draggable = true;
   bar.addEventListener("dragstart", (event) => setDragTask(event, row.task.id));
   bar.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, row.task));
@@ -391,6 +432,7 @@ function renderChildLongTaskCard(parent: HTMLElement, plugin: PersonalSchedulerP
     event.stopPropagation();
     setDragTask(event, task.id);
   });
+  item.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, task));
   const header = item.createDiv({ cls: "cb-long-child-card-header" });
   header.addEventListener("click", () => void plugin.openTaskSourceNote(task.id));
   header.createSpan({ cls: "cb-long-child-card-title", text: childTaskContentLabel(task) });
@@ -445,6 +487,10 @@ function isRecurringTask(task: CalendarTask): boolean {
 
 function childTaskContentLabel(task: CalendarTask): string {
   return cleanTaskContentText(task.rawLine) || task.text;
+}
+
+function isPlannedToday(task: CalendarTask): boolean {
+  return task.plannedDate === todayString();
 }
 
 function setupTimelineDateTarget(target: HTMLElement, plugin: PersonalSchedulerPlugin, date: string, viewMode: MonthTaskViewMode, rerender: () => void): void {
@@ -529,14 +575,34 @@ function openTaskMenu(event: MouseEvent, plugin: PersonalSchedulerPlugin, task: 
   end.type = "date";
   end.value = task.spanEnd ?? "";
 
+  let plannedToday: HTMLInputElement | undefined;
+  let childContent: HTMLInputElement | undefined;
+  if (task.taskKind === "long") {
+    const plannedRow = menu.createDiv({ cls: "cb-menu-row" });
+    plannedRow.createSpan({ text: "Planned today" });
+    plannedToday = plannedRow.createEl("input");
+    plannedToday.type = "checkbox";
+    plannedToday.checked = task.plannedDate === todayString();
+
+    const childRow = menu.createDiv({ cls: "cb-menu-row" });
+    childRow.createSpan({ text: "Child task" });
+    childContent = childRow.createEl("input");
+    childContent.type = "text";
+    childContent.placeholder = "Task content";
+  }
+
   const actions = menu.createDiv({ cls: "cb-menu-actions" });
   actions.createEl("button", { text: "Apply" }).addEventListener("click", () => void applyTaskMenu(plugin, task, {
     priority: priority.value,
     estimate: estimate.value,
     progress: progress.value,
     startDate: start.value,
-    endDate: end.value
+    endDate: end.value,
+    plannedToday: plannedToday?.checked
   }));
+  if (childContent) {
+    actions.createEl("button", { text: "Add child" }).addEventListener("click", () => void addChildTaskFromMenu(plugin, task, childContent?.value ?? ""));
+  }
   actions.createEl("button", { text: "Move to unscheduled" }).addEventListener("click", () => void moveTaskToUnscheduled(plugin, task));
   actions.createEl("button", { text: "Close" }).addEventListener("click", closeTaskMenu);
 
@@ -554,7 +620,7 @@ function openTaskMenu(event: MouseEvent, plugin: PersonalSchedulerPlugin, task: 
 async function applyTaskMenu(
   plugin: PersonalSchedulerPlugin,
   task: CalendarTask,
-  values: { priority: string; estimate: string; progress: string; startDate: string; endDate: string }
+  values: { priority: string; estimate: string; progress: string; startDate: string; endDate: string; plannedToday?: boolean }
 ): Promise<void> {
   try {
     await plugin.setTaskPriority(task.id, values.priority);
@@ -566,10 +632,28 @@ async function applyTaskMenu(
     if (minutes !== undefined) await plugin.setTaskEstimate(task.id, minutes);
     const progress = Number.parseFloat(values.progress.replace("%", "").trim());
     if (Number.isFinite(progress)) await plugin.setTaskProgress(task.id, progress);
+    if (values.plannedToday !== undefined && values.plannedToday !== (task.plannedDate === todayString())) {
+      await plugin.setLongTaskPlannedToday(task.id, values.plannedToday);
+    }
     if (values.startDate && values.endDate) await plugin.scheduleTaskSpan(task.id, values.startDate, values.endDate);
     closeTaskMenu();
   } catch (error) {
     new Notice(`Failed to update task ${task.filePath}:${task.lineNumber}`);
+    console.error(error);
+  }
+}
+
+async function addChildTaskFromMenu(plugin: PersonalSchedulerPlugin, task: CalendarTask, rawContent: string): Promise<void> {
+  const childContent = rawContent.replace(/\s+/gu, " ").trim();
+  if (!childContent) {
+    new Notice("Child task content is empty.");
+    return;
+  }
+  try {
+    await plugin.addLongTaskChild(task.id, childContent);
+    closeTaskMenu();
+  } catch (error) {
+    new Notice(`Failed to add child task for ${task.filePath}:${task.lineNumber}`);
     console.error(error);
   }
 }

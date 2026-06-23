@@ -235,6 +235,7 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
   const spanEnd = getRangeEndDate(dates);
   const spanStart = dates.start && spanEnd ? dates.start : void 0;
   const progressPercent = parseProgressPercent(first(metadata.progress));
+  const plannedDate = firstDate(metadata.planned);
   return {
     metadata,
     dates,
@@ -246,6 +247,7 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
     estimateMinutes,
     plainEstimateMinutes,
     progressPercent,
+    plannedDate,
     durationMinutes,
     priority: first(metadata.priority),
     recurrence: first(metadata.recurrence) ?? first(metadata.repeat),
@@ -295,6 +297,12 @@ function setTaskEstimate(line, estimateMinutes) {
 function setTaskProgress(line, progressPercent) {
   const clamped = Math.min(100, Math.max(0, Math.round(progressPercent)));
   return appendField(removeFields(line, ["progress"]), "progress", `${clamped}%`);
+}
+function setTaskPlannedDate(line, plannedDate) {
+  return appendField(removeFields(line, ["planned"]), "planned", plannedDate);
+}
+function clearTaskPlannedDate(line) {
+  return removeFields(line, ["planned"]);
 }
 function normalizeTaskPriority(raw) {
   if (!raw)
@@ -400,6 +408,9 @@ function firstParsedDuration(values) {
   }
   return void 0;
 }
+function firstDate(values) {
+  return values?.find((value) => DATE_RE.test(value.trim()))?.trim();
+}
 function extractPlainEstimateMinutes(line) {
   const body = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "").replace(INLINE_FIELD_RE, " ");
   for (const part of body.split(/\s+/u)) {
@@ -435,7 +446,9 @@ function buildWeekViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {}
 function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}, paceDate) {
   const activeTasks = tasks.filter((task2) => !task2.completed);
   const activeTasksById = new Map(activeTasks.map((task2) => [task2.id, task2]));
-  const recurringLoadTasks = mode === "week" ? dedupeWeekRecurringLoadTasks(activeTasks.filter(isRecurringLoadTask)) : activeTasks.filter(isRecurringLoadTask);
+  const allTasksById = new Map(tasks.map((task2) => [task2.id, task2]));
+  const recurringLoadTasks = mode === "week" ? dedupeWeekRecurringLoadTasks(activeTasks.filter(isRecurringLoadTask)) : tasks.filter(isRecurringLoadTask);
+  const recurringLoadTaskLookup = mode === "month" ? allTasksById : activeTasksById;
   const concreteActiveTasks = activeTasks.filter((task2) => !isRecurringLoadTask(task2));
   const loadTasks = (mode === "month" ? tasks : activeTasks).filter((task2) => !isRecurringLoadTask(task2));
   const pointTasks = concreteActiveTasks.filter((task2) => task2.taskKind !== "long");
@@ -468,7 +481,7 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
       dayLoads[date].taskMinutes += task2.estimateMinutes ?? defaultUnestimatedTaskMinutes;
     }
   }
-  addRecurringTaskLoads(days, dayLoads, recurringLoadTasks, activeTasksById, defaultUnestimatedTaskMinutes);
+  addRecurringTaskLoads(days, dayLoads, recurringLoadTasks, recurringLoadTaskLookup, defaultUnestimatedTaskMinutes);
   for (const load of Object.values(dayLoads)) {
     load.heatScore = load.taskMinutes + load.recurringTaskMinutes + load.reviewMinutes;
   }
@@ -829,10 +842,18 @@ function compareRecurringTaskStart(left, right) {
   return left.id.localeCompare(right.id);
 }
 function recurringEndDate(task2, tasksById) {
+  const completionEnd = task2.completed ? task2.dates.completion : void 0;
   if (task2.dates.scheduled)
-    return task2.dates.scheduled;
+    return earlierDate(task2.dates.scheduled, completionEnd);
   const parent = task2.parentLongTaskId ? tasksById.get(task2.parentLongTaskId) : void 0;
-  return parent?.spanEnd ?? parent?.dates.scheduled;
+  return earlierDate(parent?.spanEnd ?? parent?.dates.scheduled, completionEnd);
+}
+function earlierDate(left, right) {
+  if (!left)
+    return right;
+  if (!right)
+    return left;
+  return left < right ? left : right;
 }
 function recursOnDate(startDate, date, frequency) {
   if (frequency === "day")
@@ -1069,6 +1090,7 @@ function isExcludedPath(filePath, prefixes) {
 
 // src/services/TaskArchiveService.ts
 var TOP_LEVEL_COMPLETED_TASK_RE = /^[-*]\s+\[[xX]\]\s+/u;
+var CHECKBOX_TASK_RE = /^(\s*)[-*]\s+\[([ xX])\]\s+/u;
 function archiveCompletedTopLevelTasks(content, rawHeading) {
   const heading = normalizeArchiveHeading(rawHeading);
   const lines = content.split(/\r?\n/u);
@@ -1076,14 +1098,25 @@ function archiveCompletedTopLevelTasks(content, rawHeading) {
   const originalArchiveStart = originalHeadingInfo ? originalHeadingInfo.index + 1 : -1;
   const originalArchiveEnd = originalHeadingInfo ? findHeadingSectionEnd(lines, originalHeadingInfo.index, originalHeadingInfo.level) : -1;
   const moved = [];
-  const kept = lines.filter((line, index) => {
-    if (index >= originalArchiveStart && index < originalArchiveEnd)
-      return true;
-    if (!TOP_LEVEL_COMPLETED_TASK_RE.test(line))
-      return true;
-    moved.push(line);
-    return false;
-  });
+  let archivedCount = 0;
+  const kept = [];
+  for (let index = 0; index < lines.length; ) {
+    const line = lines[index];
+    if (index >= originalArchiveStart && index < originalArchiveEnd) {
+      kept.push(line);
+      index += 1;
+      continue;
+    }
+    if (!isCompletedTopLevelTask(line)) {
+      kept.push(line);
+      index += 1;
+      continue;
+    }
+    const blockEnd = findTaskBlockEnd(lines, index, 0);
+    moved.push(...lines.slice(index, blockEnd));
+    archivedCount += 1;
+    index = blockEnd;
+  }
   if (moved.length === 0)
     return { content, archivedCount: 0 };
   const headingInfo = findHeading(kept, heading);
@@ -1091,7 +1124,7 @@ function archiveCompletedTopLevelTasks(content, rawHeading) {
     const base = trimTrailingBlankLines(kept);
     return {
       content: [...base, "", `# ${heading}`, ...moved].join("\n"),
-      archivedCount: moved.length
+      archivedCount
     };
   }
   const insertIndex = findHeadingSectionEnd(kept, headingInfo.index, headingInfo.level);
@@ -1099,7 +1132,7 @@ function archiveCompletedTopLevelTasks(content, rawHeading) {
   const after = kept.slice(insertIndex);
   return {
     content: [...before, ...moved, ...after].join("\n"),
-    archivedCount: moved.length
+    archivedCount
   };
 }
 var TaskArchiveService = class {
@@ -1117,6 +1150,22 @@ var TaskArchiveService = class {
 };
 function normalizeArchiveHeading(raw) {
   return raw.trim().replace(/^#+\s*/u, "").trim() || "\u5F52\u6863";
+}
+function isCompletedTopLevelTask(line) {
+  return TOP_LEVEL_COMPLETED_TASK_RE.test(line);
+}
+function findTaskBlockEnd(lines, taskIndex, parentIndent) {
+  for (let index = taskIndex + 1; index < lines.length; index += 1) {
+    if (/^(#{1,6})\s+/u.test(lines[index]))
+      return index;
+    const task2 = lines[index].match(CHECKBOX_TASK_RE);
+    if (task2 && countIndentColumns(task2[1]) <= parentIndent)
+      return index;
+  }
+  return lines.length;
+}
+function countIndentColumns(indent) {
+  return [...indent].reduce((columns, char) => columns + (char === "	" ? 2 : 1), 0);
 }
 function findHeading(lines, heading) {
   for (let index = 0; index < lines.length; index += 1) {
@@ -1145,6 +1194,7 @@ function trimTrailingBlankLines(lines) {
 }
 
 // src/services/TaskDateWriter.ts
+var CHECKBOX_TASK_RE2 = /^(\s*)[-*]\s+\[[ xX]\]\s+/u;
 function buildScheduledDayFilePath(folderPath, scheduledDate) {
   const folder = folderPath.trim().replace(/\\/gu, "/").replace(/\/+$/u, "") || "Calendar/Scheduled";
   const fileName = `${scheduledDate.replace(/-/gu, "")}.md`;
@@ -1163,6 +1213,24 @@ function moveTaskLineToScheduledDayContent(input) {
 ` : ""}${scheduledLine}
 `;
   return { sourceContent, targetContent };
+}
+function insertChildTaskContent(sourceContent, parentLineNumber, rawChildContent) {
+  const childContent = normalizeChildTaskContent(rawChildContent);
+  if (!childContent)
+    throw new Error("Child task content is empty");
+  const lines = sourceContent.split(/\r?\n/u);
+  if (parentLineNumber < 0 || parentLineNumber >= lines.length || lines[parentLineNumber] === void 0) {
+    throw new Error(`Task line ${parentLineNumber} is outside source content`);
+  }
+  const parent = lines[parentLineNumber].match(CHECKBOX_TASK_RE2);
+  if (!parent)
+    throw new Error(`Line ${parentLineNumber} is not a task line`);
+  const parentIndent = countIndentColumns2(parent[1]);
+  const blockEnd = findTaskBlockEnd2(lines, parentLineNumber, parentIndent);
+  const insertIndex = blockEnd === lines.length && lines[lines.length - 1] === "" ? lines.length - 1 : blockEnd;
+  const childIndent = `${parent[1]}  `;
+  lines.splice(insertIndex, 0, `${childIndent}- [ ] ${childContent}`);
+  return lines.join("\n");
 }
 var TaskDateWriter = class {
   constructor(app) {
@@ -1183,11 +1251,21 @@ var TaskDateWriter = class {
   async setProgress(file, lineNumber, progressPercent) {
     await this.replaceTaskLine(file, lineNumber, (line) => setTaskProgress(line, progressPercent));
   }
+  async setPlannedDate(file, lineNumber, plannedDate) {
+    await this.replaceTaskLine(file, lineNumber, (line) => setTaskPlannedDate(line, plannedDate));
+  }
+  async clearPlannedDate(file, lineNumber) {
+    await this.replaceTaskLine(file, lineNumber, (line) => clearTaskPlannedDate(line));
+  }
   async setPriority(file, lineNumber, priority) {
     await this.replaceTaskLine(file, lineNumber, (line) => setTaskPriority(line, priority));
   }
   async clearSchedule(file, lineNumber) {
     await this.replaceTaskLine(file, lineNumber, (line) => clearTaskScheduleDates(line));
+  }
+  async addChildTask(file, parentLineNumber, rawChildContent) {
+    const content = await this.app.vault.read(file);
+    await this.app.vault.modify(file, insertChildTaskContent(content, parentLineNumber, rawChildContent));
   }
   async movePointTaskToScheduledDay(file, lineNumber, scheduledDayFolder, scheduledDate, defaultEstimateMinutes, createdDate) {
     const sourceContent = await this.app.vault.read(file);
@@ -1244,6 +1322,22 @@ var TaskDateWriter = class {
     }
   }
 };
+function findTaskBlockEnd2(lines, taskIndex, parentIndent) {
+  for (let index = taskIndex + 1; index < lines.length; index += 1) {
+    if (/^(#{1,6})\s+/u.test(lines[index]))
+      return index;
+    const task2 = lines[index].match(CHECKBOX_TASK_RE2);
+    if (task2 && countIndentColumns2(task2[1]) <= parentIndent)
+      return index;
+  }
+  return lines.length;
+}
+function countIndentColumns2(indent) {
+  return [...indent].reduce((columns, char) => columns + (char === "	" ? 2 : 1), 0);
+}
+function normalizeChildTaskContent(raw) {
+  return raw.replace(/\s+/gu, " ").trim();
+}
 
 // src/services/TaskPlanningGuards.ts
 function isScheduledPointTask(task2) {
@@ -1267,7 +1361,7 @@ function scanMarkdownTasksFromText(filePath, content, options) {
     const metadata = extractTaskMetadata(line, options.readLegacyEmojiDates);
     const taskKind = metadata.dates.start ? "long" : "point";
     const id = `${filePath}:${lineNumber}`;
-    const indentLevel = countIndentColumns(line);
+    const indentLevel = countIndentColumns3(line);
     while (indentStack.length > 0 && indentStack[indentStack.length - 1].indentLevel >= indentLevel) {
       indentStack.pop();
     }
@@ -1293,6 +1387,7 @@ function scanMarkdownTasksFromText(filePath, content, options) {
       estimateMinutes: metadata.estimateMinutes,
       plainEstimateMinutes: metadata.plainEstimateMinutes,
       progressPercent: metadata.progressPercent,
+      plannedDate: metadata.plannedDate,
       durationMinutes: metadata.durationMinutes,
       priority: metadata.priority,
       recurrence: metadata.recurrence,
@@ -1308,7 +1403,7 @@ function scanMarkdownTasksFromText(filePath, content, options) {
   });
   return tasks;
 }
-function countIndentColumns(line) {
+function countIndentColumns3(line) {
   const indent = line.match(/^[\t ]*/u)?.[0] ?? "";
   return [...indent].reduce((columns, char) => columns + (char === "	" ? 2 : 1), 0);
 }
@@ -1449,6 +1544,11 @@ function buildFoldedPastDay(pastDays) {
 
 // src/ui/pages/MonthPage.ts
 var longRangeDraft = null;
+var MONTH_HEAT_MAX_MINUTES = 14 * 60;
+var MONTH_HEAT_MID_MINUTES = MONTH_HEAT_MAX_MINUTES / 2;
+var MONTH_HEAT_GREEN = { r: 54, g: 147, b: 95 };
+var MONTH_HEAT_ORANGE = { r: 208, g: 129, b: 36 };
+var MONTH_HEAT_RED = { r: 191, g: 75, b: 69 };
 function renderMonthPage(container, plugin, context) {
   container.empty();
   const groupState = getSourceGroupState(plugin);
@@ -1598,7 +1698,7 @@ function renderPointMonthGrid(parent, plugin, context, model, viewMode) {
     const cell = grid.createDiv({ cls: "cb-day-cell" });
     cell.toggleClass("is-outside-month", !day.inCurrentMonth);
     cell.toggleClass("is-today", day.isToday);
-    cell.style.setProperty("--cb-heat", String(Math.min(1, load.heatScore / 360)));
+    applyMonthHeatStyle(cell, load.heatScore);
     setupPointDateTarget(cell, plugin, day.date);
     const header = cell.createDiv({ cls: "cb-day-header" });
     header.createSpan({ cls: "cb-day-number", text: String(day.dayOfMonth) });
@@ -1624,6 +1724,34 @@ function renderDayLoadMetric(parent, label, value, extraClass) {
   const metric = parent.createDiv({ cls: `cb-day-load-summary ${extraClass}` });
   metric.createSpan({ cls: "cb-day-load-label", text: label });
   metric.createSpan({ cls: "cb-day-load-value", text: value });
+}
+function applyMonthHeatStyle(cell, minutes) {
+  const heat = monthHeatStyle(minutes);
+  if (!heat)
+    return;
+  cell.style.setProperty("--cb-heat-r", String(heat.r));
+  cell.style.setProperty("--cb-heat-g", String(heat.g));
+  cell.style.setProperty("--cb-heat-b", String(heat.b));
+  cell.style.setProperty("--cb-heat-alpha", heat.alpha.toFixed(3));
+}
+function monthHeatStyle(minutes) {
+  if (minutes <= 0)
+    return void 0;
+  const clamped = Math.min(minutes, MONTH_HEAT_MAX_MINUTES);
+  const normalized = clamped / MONTH_HEAT_MAX_MINUTES;
+  const color = clamped <= MONTH_HEAT_MID_MINUTES ? interpolateHeatColor(MONTH_HEAT_GREEN, MONTH_HEAT_ORANGE, clamped / MONTH_HEAT_MID_MINUTES) : interpolateHeatColor(MONTH_HEAT_ORANGE, MONTH_HEAT_RED, (clamped - MONTH_HEAT_MID_MINUTES) / MONTH_HEAT_MID_MINUTES);
+  return {
+    ...color,
+    alpha: 0.18 + normalized * 0.16
+  };
+}
+function interpolateHeatColor(start, end, ratio) {
+  const clampedRatio = Math.max(0, Math.min(1, ratio));
+  return {
+    r: Math.round(start.r + (end.r - start.r) * clampedRatio),
+    g: Math.round(start.g + (end.g - start.g) * clampedRatio),
+    b: Math.round(start.b + (end.b - start.b) * clampedRatio)
+  };
 }
 function renderWeekdayHeader(parent, weekStartsOn) {
   const row = parent.createDiv({ cls: "cb-weekday-row" });
@@ -1713,6 +1841,7 @@ function renderLongDatePicker(parent, plugin, monthDays, viewMode, rerender) {
 function renderLongVerticalTask(parent, plugin, row) {
   const bar = parent.createDiv({ cls: `cb-long-vertical-bar ${priorityClass(row.task)}` });
   bar.toggleClass("is-behind", row.status === "behind");
+  bar.toggleClass("is-planned-today", isPlannedToday(row.task));
   bar.draggable = true;
   bar.addEventListener("dragstart", (event) => setDragTask(event, row.task.id));
   bar.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, row.task));
@@ -1764,6 +1893,7 @@ function renderChildLongTaskCard(parent, plugin, task2, schedule) {
     event.stopPropagation();
     setDragTask(event, task2.id);
   });
+  item.addEventListener("contextmenu", (event) => openTaskMenu(event, plugin, task2));
   const header = item.createDiv({ cls: "cb-long-child-card-header" });
   header.addEventListener("click", () => void plugin.openTaskSourceNote(task2.id));
   header.createSpan({ cls: "cb-long-child-card-title", text: childTaskContentLabel(task2) });
@@ -1823,6 +1953,9 @@ function isRecurringTask(task2) {
 }
 function childTaskContentLabel(task2) {
   return cleanTaskContentText(task2.rawLine) || task2.text;
+}
+function isPlannedToday(task2) {
+  return task2.plannedDate === todayString();
 }
 function setupTimelineDateTarget(target, plugin, date, viewMode, rerender) {
   if (viewMode === "long") {
@@ -1902,14 +2035,32 @@ function openTaskMenu(event, plugin, task2) {
   const end = rangeRow.createEl("input");
   end.type = "date";
   end.value = task2.spanEnd ?? "";
+  let plannedToday;
+  let childContent;
+  if (task2.taskKind === "long") {
+    const plannedRow = menu.createDiv({ cls: "cb-menu-row" });
+    plannedRow.createSpan({ text: "Planned today" });
+    plannedToday = plannedRow.createEl("input");
+    plannedToday.type = "checkbox";
+    plannedToday.checked = task2.plannedDate === todayString();
+    const childRow = menu.createDiv({ cls: "cb-menu-row" });
+    childRow.createSpan({ text: "Child task" });
+    childContent = childRow.createEl("input");
+    childContent.type = "text";
+    childContent.placeholder = "Task content";
+  }
   const actions = menu.createDiv({ cls: "cb-menu-actions" });
   actions.createEl("button", { text: "Apply" }).addEventListener("click", () => void applyTaskMenu(plugin, task2, {
     priority: priority.value,
     estimate: estimate.value,
     progress: progress.value,
     startDate: start.value,
-    endDate: end.value
+    endDate: end.value,
+    plannedToday: plannedToday?.checked
   }));
+  if (childContent) {
+    actions.createEl("button", { text: "Add child" }).addEventListener("click", () => void addChildTaskFromMenu(plugin, task2, childContent?.value ?? ""));
+  }
   actions.createEl("button", { text: "Move to unscheduled" }).addEventListener("click", () => void moveTaskToUnscheduled(plugin, task2));
   actions.createEl("button", { text: "Close" }).addEventListener("click", closeTaskMenu);
   setTimeout(() => {
@@ -1935,11 +2086,28 @@ async function applyTaskMenu(plugin, task2, values) {
     const progress = Number.parseFloat(values.progress.replace("%", "").trim());
     if (Number.isFinite(progress))
       await plugin.setTaskProgress(task2.id, progress);
+    if (values.plannedToday !== void 0 && values.plannedToday !== (task2.plannedDate === todayString())) {
+      await plugin.setLongTaskPlannedToday(task2.id, values.plannedToday);
+    }
     if (values.startDate && values.endDate)
       await plugin.scheduleTaskSpan(task2.id, values.startDate, values.endDate);
     closeTaskMenu();
   } catch (error) {
     new Notice(`Failed to update task ${task2.filePath}:${task2.lineNumber}`);
+    console.error(error);
+  }
+}
+async function addChildTaskFromMenu(plugin, task2, rawContent) {
+  const childContent = rawContent.replace(/\s+/gu, " ").trim();
+  if (!childContent) {
+    new Notice("Child task content is empty.");
+    return;
+  }
+  try {
+    await plugin.addLongTaskChild(task2.id, childContent);
+    closeTaskMenu();
+  } catch (error) {
+    new Notice(`Failed to add child task for ${task2.filePath}:${task2.lineNumber}`);
     console.error(error);
   }
 }
@@ -2875,6 +3043,21 @@ var PersonalSchedulerPlugin = class extends Plugin {
     await this.taskDateWriter.setProgress(target.file, target.lineNumber, progressPercent);
     await this.rescanTasks();
   }
+  async setLongTaskPlannedToday(taskId, planned) {
+    const target = this.resolveTaskRef(taskId);
+    if (!target)
+      return;
+    const task2 = this.calendarTasks.find((item) => item.id === taskId);
+    if (task2?.taskKind !== "long") {
+      new Notice("Only long tasks can be marked as planned today.");
+      return;
+    }
+    if (planned)
+      await this.taskDateWriter.setPlannedDate(target.file, target.lineNumber, todayString());
+    else
+      await this.taskDateWriter.clearPlannedDate(target.file, target.lineNumber);
+    await this.rescanTasks();
+  }
   async setTaskPriority(taskId, priority) {
     const target = this.resolveTaskRef(taskId);
     if (!target)
@@ -2887,6 +3070,18 @@ var PersonalSchedulerPlugin = class extends Plugin {
     if (!target)
       return;
     await this.taskDateWriter.clearSchedule(target.file, target.lineNumber);
+    await this.rescanTasks();
+  }
+  async addLongTaskChild(taskId, childContent) {
+    const target = this.resolveTaskRef(taskId);
+    if (!target)
+      return;
+    const task2 = this.calendarTasks.find((item) => item.id === taskId);
+    if (task2?.taskKind !== "long") {
+      new Notice("Only long tasks can have child tasks added here.");
+      return;
+    }
+    await this.taskDateWriter.addChildTask(target.file, target.lineNumber, childContent);
     await this.rescanTasks();
   }
   openTaskArchiveModal() {

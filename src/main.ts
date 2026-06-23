@@ -202,6 +202,19 @@ export default class PersonalSchedulerPlugin extends Plugin {
     await this.rescanTasks();
   }
 
+  async setLongTaskPlannedToday(taskId: string, planned: boolean): Promise<void> {
+    const target = this.resolveTaskRef(taskId);
+    if (!target) return;
+    const task = this.calendarTasks.find((item) => item.id === taskId);
+    if (task?.taskKind !== "long") {
+      new Notice("Only long tasks can be marked as planned today.");
+      return;
+    }
+    if (planned) await this.taskDateWriter.setPlannedDate(target.file, target.lineNumber, todayString());
+    else await this.taskDateWriter.clearPlannedDate(target.file, target.lineNumber);
+    await this.rescanTasks();
+  }
+
   async setTaskPriority(taskId: string, priority: string): Promise<void> {
     const target = this.resolveTaskRef(taskId);
     if (!target) return;
@@ -213,6 +226,18 @@ export default class PersonalSchedulerPlugin extends Plugin {
     const target = this.resolveTaskRef(taskId);
     if (!target) return;
     await this.taskDateWriter.clearSchedule(target.file, target.lineNumber);
+    await this.rescanTasks();
+  }
+
+  async addLongTaskChild(taskId: string, childContent: string): Promise<void> {
+    const target = this.resolveTaskRef(taskId);
+    if (!target) return;
+    const task = this.calendarTasks.find((item) => item.id === taskId);
+    if (task?.taskKind !== "long") {
+      new Notice("Only long tasks can have child tasks added here.");
+      return;
+    }
+    await this.taskDateWriter.addChildTask(target.file, target.lineNumber, childContent);
     await this.rescanTasks();
   }
 

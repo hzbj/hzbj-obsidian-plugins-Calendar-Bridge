@@ -54,6 +54,7 @@ export function scanMarkdownTasksFromText(filePath: string, content: string, opt
       estimateMinutes: metadata.estimateMinutes,
       plainEstimateMinutes: metadata.plainEstimateMinutes,
       progressPercent: metadata.progressPercent,
+      plannedDate: metadata.plannedDate,
       durationMinutes: metadata.durationMinutes,
       priority: metadata.priority,
       recurrence: metadata.recurrence,

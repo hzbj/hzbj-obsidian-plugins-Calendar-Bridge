@@ -38,6 +38,7 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
   const spanEnd = getRangeEndDate(dates);
   const spanStart = dates.start && spanEnd ? dates.start : void 0;
   const progressPercent = parseProgressPercent(first(metadata.progress));
+  const plannedDate = firstDate(metadata.planned);
   return {
     metadata,
     dates,
@@ -49,6 +50,7 @@ function extractTaskMetadata(line, readLegacyEmojiDates) {
     estimateMinutes,
     plainEstimateMinutes,
     progressPercent,
+    plannedDate,
     durationMinutes,
     priority: first(metadata.priority),
     recurrence: first(metadata.recurrence) ?? first(metadata.repeat),
@@ -98,6 +100,12 @@ function setTaskEstimate(line, estimateMinutes) {
 function setTaskProgress(line, progressPercent) {
   const clamped = Math.min(100, Math.max(0, Math.round(progressPercent)));
   return appendField(removeFields(line, ["progress"]), "progress", `${clamped}%`);
+}
+function setTaskPlannedDate(line, plannedDate) {
+  return appendField(removeFields(line, ["planned"]), "planned", plannedDate);
+}
+function clearTaskPlannedDate(line) {
+  return removeFields(line, ["planned"]);
 }
 function normalizeTaskPriority(raw) {
   if (!raw)
@@ -203,6 +211,9 @@ function firstParsedDuration(values) {
   }
   return void 0;
 }
+function firstDate(values) {
+  return values?.find((value) => DATE_RE.test(value.trim()))?.trim();
+}
 function extractPlainEstimateMinutes(line) {
   const body = line.replace(/^\s*[-*]\s+\[[ xX]\]\s+/u, "").replace(INLINE_FIELD_RE, " ");
   for (const part of body.split(/\s+/u)) {
@@ -255,6 +266,13 @@ function parseProgressPercent(raw) {
   import_node_assert.strict.equal(parsed.progressPercent, 40);
   import_node_assert.strict.equal(parsed.dates.scheduled, "2026-06-17");
   import_node_assert.strict.equal(parsed.dates.due, "2026-06-17");
+});
+(0, import_node_test.test)("parses planned date field for daily long-task planning state", () => {
+  const parsed = extractTaskMetadata(
+    "- [ ] Long work #task [start:: 2026-06-20] [scheduled:: 2026-06-30] [planned:: 2026-06-23]",
+    true
+  );
+  import_node_assert.strict.equal(parsed.plannedDate, "2026-06-23");
 });
 (0, import_node_test.test)("parses legacy emoji date when compatibility is enabled", () => {
   const parsed = extractTaskMetadata("- [ ] Task #task \u9983\u642E 2024-01-14", true);
@@ -354,6 +372,16 @@ function parseProgressPercent(raw) {
   import_node_assert.strict.equal(
     setTaskProgress("- [ ] A #task [context:: phone] [estimate:: 75m] [progress:: 40%]", 65),
     "- [ ] A #task [context:: phone] [estimate:: 75m] [progress:: 65%]"
+  );
+});
+(0, import_node_test.test)("planned date writeback preserves unrelated Dataview fields", () => {
+  import_node_assert.strict.equal(
+    setTaskPlannedDate("- [ ] A #task [context:: phone] [planned:: 2026-06-22] [progress:: 40%]", "2026-06-23"),
+    "- [ ] A #task [context:: phone] [progress:: 40%] [planned:: 2026-06-23]"
+  );
+  import_node_assert.strict.equal(
+    clearTaskPlannedDate("- [ ] A #task [context:: phone] [planned:: 2026-06-23] [progress:: 40%]"),
+    "- [ ] A #task [context:: phone] [progress:: 40%]"
   );
 });
 (0, import_node_test.test)("clears plugin schedule dates while preserving due and other metadata", () => {

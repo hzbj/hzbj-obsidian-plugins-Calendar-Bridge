@@ -10,6 +10,8 @@ import {
   setTaskPriority,
   setTaskEstimate,
   setTaskProgress,
+  setTaskPlannedDate,
+  clearTaskPlannedDate,
   setPointTaskSchedule,
   setTaskScheduleDate,
   setTaskSpanDates
@@ -44,6 +46,15 @@ test("parses plain estimate, created date, and manual progress fields", () => {
   assert.equal(parsed.progressPercent, 40);
   assert.equal(parsed.dates.scheduled, "2026-06-17");
   assert.equal(parsed.dates.due, "2026-06-17");
+});
+
+test("parses planned date field for daily long-task planning state", () => {
+  const parsed = extractTaskMetadata(
+    "- [ ] Long work #task [start:: 2026-06-20] [scheduled:: 2026-06-30] [planned:: 2026-06-23]",
+    true
+  );
+
+  assert.equal(parsed.plannedDate, "2026-06-23");
 });
 
 test("parses legacy emoji date when compatibility is enabled", () => {
@@ -157,6 +168,17 @@ test("estimate and progress writeback preserve unrelated Dataview fields", () =>
   assert.equal(
     setTaskProgress("- [ ] A #task [context:: phone] [estimate:: 75m] [progress:: 40%]", 65),
     "- [ ] A #task [context:: phone] [estimate:: 75m] [progress:: 65%]"
+  );
+});
+
+test("planned date writeback preserves unrelated Dataview fields", () => {
+  assert.equal(
+    setTaskPlannedDate("- [ ] A #task [context:: phone] [planned:: 2026-06-22] [progress:: 40%]", "2026-06-23"),
+    "- [ ] A #task [context:: phone] [progress:: 40%] [planned:: 2026-06-23]"
+  );
+  assert.equal(
+    clearTaskPlannedDate("- [ ] A #task [context:: phone] [planned:: 2026-06-23] [progress:: 40%]"),
+    "- [ ] A #task [context:: phone] [progress:: 40%]"
   );
 });
 

@@ -32,6 +32,7 @@ export interface CalendarTask {
   estimateMinutes?: number;
   plainEstimateMinutes?: number;
   progressPercent: number;
+  plannedDate?: string;
   durationMinutes?: number;
   priority?: string;
   recurrence?: string;

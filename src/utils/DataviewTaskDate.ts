@@ -11,6 +11,7 @@ export interface ExtractedTaskMetadata {
   estimateMinutes?: number;
   plainEstimateMinutes?: number;
   progressPercent: number;
+  plannedDate?: string;
   durationMinutes?: number;
   priority?: string;
   recurrence?: string;
@@ -64,6 +65,7 @@ export function extractTaskMetadata(line: string, readLegacyEmojiDates: boolean)
   const spanEnd = getRangeEndDate(dates);
   const spanStart = dates.start && spanEnd ? dates.start : undefined;
   const progressPercent = parseProgressPercent(first(metadata.progress));
+  const plannedDate = firstDate(metadata.planned);
 
   return {
     metadata,
@@ -76,6 +78,7 @@ export function extractTaskMetadata(line: string, readLegacyEmojiDates: boolean)
     estimateMinutes,
     plainEstimateMinutes,
     progressPercent,
+    plannedDate,
     durationMinutes,
     priority: first(metadata.priority),
     recurrence: first(metadata.recurrence) ?? first(metadata.repeat),
@@ -136,6 +139,14 @@ export function setTaskEstimate(line: string, estimateMinutes: number): string {
 export function setTaskProgress(line: string, progressPercent: number): string {
   const clamped = Math.min(100, Math.max(0, Math.round(progressPercent)));
   return appendField(removeFields(line, ["progress"]), "progress", `${clamped}%`);
+}
+
+export function setTaskPlannedDate(line: string, plannedDate: string): string {
+  return appendField(removeFields(line, ["planned"]), "planned", plannedDate);
+}
+
+export function clearTaskPlannedDate(line: string): string {
+  return removeFields(line, ["planned"]);
 }
 
 export function normalizeTaskPriority(raw: string | undefined): TaskPriority | undefined {
@@ -263,6 +274,10 @@ function firstParsedDuration(values: string[] | undefined): number | undefined {
     if (parsed !== undefined) return parsed;
   }
   return undefined;
+}
+
+function firstDate(values: string[] | undefined): string | undefined {
+  return values?.find((value) => DATE_RE.test(value.trim()))?.trim();
 }
 
 function extractPlainEstimateMinutes(line: string): number | undefined {

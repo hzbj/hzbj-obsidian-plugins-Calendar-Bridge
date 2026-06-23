@@ -1,8 +1,10 @@
 import type { App, TFile } from "obsidian";
 import {
+  clearTaskPlannedDate,
   clearTaskScheduleDates,
   setPointTaskSchedule,
   setTaskEstimate,
+  setTaskPlannedDate,
   setTaskPriority,
   setTaskProgress,
   setTaskScheduleDate,
@@ -23,6 +25,8 @@ export interface MoveTaskLineResult {
   targetContent: string;
 }
 
+const CHECKBOX_TASK_RE = /^(\s*)[-*]\s+\[[ xX]\]\s+/u;
+
 export function buildScheduledDayFilePath(folderPath: string, scheduledDate: string): string {
   const folder = folderPath.trim().replace(/\\/gu, "/").replace(/\/+$/u, "") || "Calendar/Scheduled";
   const fileName = `${scheduledDate.replace(/-/gu, "")}.md`;
@@ -40,6 +44,25 @@ export function moveTaskLineToScheduledDayContent(input: MoveTaskLineInput): Mov
   const targetBase = input.targetContent.trimEnd();
   const targetContent = `${targetBase ? `${targetBase}\n` : ""}${scheduledLine}\n`;
   return { sourceContent, targetContent };
+}
+
+export function insertChildTaskContent(sourceContent: string, parentLineNumber: number, rawChildContent: string): string {
+  const childContent = normalizeChildTaskContent(rawChildContent);
+  if (!childContent) throw new Error("Child task content is empty");
+
+  const lines = sourceContent.split(/\r?\n/u);
+  if (parentLineNumber < 0 || parentLineNumber >= lines.length || lines[parentLineNumber] === undefined) {
+    throw new Error(`Task line ${parentLineNumber} is outside source content`);
+  }
+  const parent = lines[parentLineNumber].match(CHECKBOX_TASK_RE);
+  if (!parent) throw new Error(`Line ${parentLineNumber} is not a task line`);
+
+  const parentIndent = countIndentColumns(parent[1]);
+  const blockEnd = findTaskBlockEnd(lines, parentLineNumber, parentIndent);
+  const insertIndex = blockEnd === lines.length && lines[lines.length - 1] === "" ? lines.length - 1 : blockEnd;
+  const childIndent = `${parent[1]}  `;
+  lines.splice(insertIndex, 0, `${childIndent}- [ ] ${childContent}`);
+  return lines.join("\n");
 }
 
 export class TaskDateWriter {
@@ -65,12 +88,25 @@ export class TaskDateWriter {
     await this.replaceTaskLine(file, lineNumber, (line) => setTaskProgress(line, progressPercent));
   }
 
+  async setPlannedDate(file: TFile, lineNumber: number, plannedDate: string): Promise<void> {
+    await this.replaceTaskLine(file, lineNumber, (line) => setTaskPlannedDate(line, plannedDate));
+  }
+
+  async clearPlannedDate(file: TFile, lineNumber: number): Promise<void> {
+    await this.replaceTaskLine(file, lineNumber, (line) => clearTaskPlannedDate(line));
+  }
+
   async setPriority(file: TFile, lineNumber: number, priority: string): Promise<void> {
     await this.replaceTaskLine(file, lineNumber, (line) => setTaskPriority(line, priority));
   }
 
   async clearSchedule(file: TFile, lineNumber: number): Promise<void> {
     await this.replaceTaskLine(file, lineNumber, (line) => clearTaskScheduleDates(line));
+  }
+
+  async addChildTask(file: TFile, parentLineNumber: number, rawChildContent: string): Promise<void> {
+    const content = await this.app.vault.read(file);
+    await this.app.vault.modify(file, insertChildTaskContent(content, parentLineNumber, rawChildContent));
   }
 
   async movePointTaskToScheduledDay(
@@ -135,4 +171,21 @@ export class TaskDateWriter {
       }
     }
   }
+}
+
+function findTaskBlockEnd(lines: string[], taskIndex: number, parentIndent: number): number {
+  for (let index = taskIndex + 1; index < lines.length; index += 1) {
+    if (/^(#{1,6})\s+/u.test(lines[index])) return index;
+    const task = lines[index].match(CHECKBOX_TASK_RE);
+    if (task && countIndentColumns(task[1]) <= parentIndent) return index;
+  }
+  return lines.length;
+}
+
+function countIndentColumns(indent: string): number {
+  return [...indent].reduce((columns, char) => columns + (char === "\t" ? 2 : 1), 0);
+}
+
+function normalizeChildTaskContent(raw: string): string {
+  return raw.replace(/\s+/gu, " ").trim();
 }

@@ -48,6 +48,62 @@ test("renders month recurring task counts separately from concrete task counts",
   assert.match(css, /\.cb-day-load-value/);
 });
 
+test("maps month heat scores to continuous green orange red variables", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+  const css = readFileSync("styles.css", "utf8");
+
+  assert.match(source, /const MONTH_HEAT_MAX_MINUTES = 14 \* 60/);
+  assert.match(source, /const MONTH_HEAT_MID_MINUTES = MONTH_HEAT_MAX_MINUTES \/ 2/);
+  assert.match(source, /const MONTH_HEAT_GREEN = \{ r: 54, g: 147, b: 95 \}/);
+  assert.match(source, /const MONTH_HEAT_ORANGE = \{ r: 208, g: 129, b: 36 \}/);
+  assert.match(source, /const MONTH_HEAT_RED = \{ r: 191, g: 75, b: 69 \}/);
+  assert.match(source, /applyMonthHeatStyle\(cell, load\.heatScore\)/);
+  assert.match(source, /function monthHeatStyle/);
+  assert.match(source, /interpolateHeatColor\(MONTH_HEAT_GREEN, MONTH_HEAT_ORANGE/);
+  assert.match(source, /interpolateHeatColor\(MONTH_HEAT_ORANGE, MONTH_HEAT_RED/);
+  assert.match(source, /Math\.min\(minutes, MONTH_HEAT_MAX_MINUTES\)/);
+  assert.match(source, /--cb-heat-r/);
+  assert.match(source, /--cb-heat-alpha/);
+  assert.doesNotMatch(source, /monthHeatLevel/);
+  assert.doesNotMatch(source, /is-heat-\$\{/);
+  assert.doesNotMatch(source, /minutes <= 120/);
+  assert.doesNotMatch(source, /minutes <= 240/);
+  assert.match(css, /--cb-heat-r:\s*0/);
+  assert.match(css, /--cb-heat-g:\s*0/);
+  assert.match(css, /--cb-heat-b:\s*0/);
+  assert.match(css, /--cb-heat-alpha:\s*0/);
+  assert.match(css, /rgba\(var\(--cb-heat-r\), var\(--cb-heat-g\), var\(--cb-heat-b\), var\(--cb-heat-alpha\)\)/);
+  assert.doesNotMatch(css, /\.cb-day-cell\.is-heat-low/);
+  assert.doesNotMatch(css, /\.cb-day-cell\.is-heat-medium/);
+  assert.doesNotMatch(css, /\.cb-day-cell\.is-heat-high/);
+});
+
+test("renders long-task planned and child-entry controls only in the task menu", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+  const menu = source.slice(source.indexOf("function openTaskMenu"), source.indexOf("async function applyTaskMenu"));
+
+  assert.match(menu, /if \(task\.taskKind === "long"\)/);
+  assert.match(menu, /task\.plannedDate === todayString\(\)/);
+  assert.match(menu, /Planned today/);
+  assert.match(menu, /Child task/);
+  assert.match(menu, /Add child/);
+  assert.match(source, /function addChildTaskFromMenu/);
+  assert.match(source, /plugin\.addLongTaskChild/);
+});
+
+test("keeps long-task context menu controls wide and single-line", () => {
+  const css = readFileSync("styles.css", "utf8");
+  const menu = css.slice(css.indexOf(".cb-task-context-menu"), css.indexOf(".modal:has(.cb-archive-modal)"));
+
+  assert.match(menu, /width:\s*min\(480px,\s*calc\(100vw - 24px\)\)/);
+  assert.match(menu, /grid-template-columns:\s*112px minmax\(0,\s*1fr\)/);
+  assert.match(menu, /input\[type="checkbox"\][\s\S]*width:\s*18px/);
+  assert.match(menu, /input\[type="checkbox"\][\s\S]*height:\s*18px/);
+  assert.match(menu, /\.cb-menu-actions\s*\{[\s\S]*display:\s*grid/);
+  assert.match(menu, /grid-template-columns:\s*auto auto minmax\(max-content,\s*1fr\) auto/);
+  assert.match(menu, /white-space:\s*nowrap/);
+});
+
 test("filters scheduled daily files only for month long-task mode", () => {
   const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
   const render = source.slice(source.indexOf("export function renderMonthPage"), source.indexOf("function renderGroupedPool"));
@@ -80,7 +136,21 @@ test("uses the long-task red frame for behind pace status", () => {
   assert.match(task, /toggleClass\("is-behind", row\.status === "behind"\)/);
   assert.doesNotMatch(task, /toggleClass\("is-overdue"/);
   assert.match(css, /\.cb-long-vertical-bar\.is-behind\s*\{/);
+  assert.match(css, /\.cb-long-vertical-bar\.is-behind\s*\{[^}]*var\(--text-error\)/s);
   assert.doesNotMatch(css, /\.cb-long-vertical-bar\.is-overdue\s*\{/);
+});
+
+test("uses a green frame only on planned long-task timeline bars", () => {
+  const source = readFileSync("src/ui/pages/MonthPage.ts", "utf8");
+  const css = readFileSync("styles.css", "utf8");
+  const poolTask = source.slice(source.indexOf("function renderLongPoolTask"), source.indexOf("function renderTaskTitle"));
+  const timelineTask = source.slice(source.indexOf("function renderLongVerticalTask"), source.indexOf("function renderLongTaskChildren"));
+
+  assert.doesNotMatch(poolTask, /is-planned-today/);
+  assert.match(timelineTask, /toggleClass\("is-planned-today", isPlannedToday\(row\.task\)\)/);
+  assert.match(css, /\.cb-long-vertical-bar\.is-planned-today\s*\{/);
+  assert.match(css, /\.cb-long-vertical-bar\.is-planned-today\s*\{[^}]*var\(--text-success\)/s);
+  assert.doesNotMatch(css, /\.cb-long-task-card\.is-planned-today/);
 });
 
 test("lets long-task month timelines collapse and expand past days", () => {

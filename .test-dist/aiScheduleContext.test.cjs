@@ -72,7 +72,9 @@ function buildMonthViewModel(anchorDate, tasks, weekStartsOn, reviewPressure = {
 function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestimatedTaskMinutes, mode, sourceGroupState = {}, paceDate) {
   const activeTasks = tasks.filter((task2) => !task2.completed);
   const activeTasksById = new Map(activeTasks.map((task2) => [task2.id, task2]));
-  const recurringLoadTasks = mode === "week" ? dedupeWeekRecurringLoadTasks(activeTasks.filter(isRecurringLoadTask)) : activeTasks.filter(isRecurringLoadTask);
+  const allTasksById = new Map(tasks.map((task2) => [task2.id, task2]));
+  const recurringLoadTasks = mode === "week" ? dedupeWeekRecurringLoadTasks(activeTasks.filter(isRecurringLoadTask)) : tasks.filter(isRecurringLoadTask);
+  const recurringLoadTaskLookup = mode === "month" ? allTasksById : activeTasksById;
   const concreteActiveTasks = activeTasks.filter((task2) => !isRecurringLoadTask(task2));
   const loadTasks = (mode === "month" ? tasks : activeTasks).filter((task2) => !isRecurringLoadTask(task2));
   const pointTasks = concreteActiveTasks.filter((task2) => task2.taskKind !== "long");
@@ -105,7 +107,7 @@ function buildViewModel(days, tasks, anchorDate, reviewPressure, defaultUnestima
       dayLoads[date].taskMinutes += task2.estimateMinutes ?? defaultUnestimatedTaskMinutes;
     }
   }
-  addRecurringTaskLoads(days, dayLoads, recurringLoadTasks, activeTasksById, defaultUnestimatedTaskMinutes);
+  addRecurringTaskLoads(days, dayLoads, recurringLoadTasks, recurringLoadTaskLookup, defaultUnestimatedTaskMinutes);
   for (const load of Object.values(dayLoads)) {
     load.heatScore = load.taskMinutes + load.recurringTaskMinutes + load.reviewMinutes;
   }
@@ -466,10 +468,18 @@ function compareRecurringTaskStart(left, right) {
   return left.id.localeCompare(right.id);
 }
 function recurringEndDate(task2, tasksById) {
+  const completionEnd = task2.completed ? task2.dates.completion : void 0;
   if (task2.dates.scheduled)
-    return task2.dates.scheduled;
+    return earlierDate(task2.dates.scheduled, completionEnd);
   const parent = task2.parentLongTaskId ? tasksById.get(task2.parentLongTaskId) : void 0;
-  return parent?.spanEnd ?? parent?.dates.scheduled;
+  return earlierDate(parent?.spanEnd ?? parent?.dates.scheduled, completionEnd);
+}
+function earlierDate(left, right) {
+  if (!left)
+    return right;
+  if (!right)
+    return left;
+  return left < right ? left : right;
 }
 function recursOnDate(startDate, date, frequency) {
   if (frequency === "day")

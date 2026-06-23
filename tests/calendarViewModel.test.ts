@@ -104,7 +104,7 @@ test("counts recurring tasks separately without rendering them as scheduled task
       recurrence: "every year",
       estimateMinutes: 90
     }),
-    task("done", "Done repeating", { start: "2026-06-22" }, {
+    task("done", "Done repeating", { start: "2026-06-22", completion: "2026-06-22" }, {
       taskKind: "long",
       recurrence: "every day",
       completed: true,
@@ -132,9 +132,44 @@ test("counts recurring tasks separately without rendering them as scheduled task
   assert.equal(week.longTaskTimelineRows.length, 0);
 
   const month = buildMonthViewModel("2026-06-15", recurringTasks, 1, {}, 30, {}, "2026-06-22");
+  assert.equal(month.dayLoads["2026-06-22"].recurringTaskCount, 2);
+  assert.equal(month.dayLoads["2026-06-22"].recurringTaskMinutes, 135);
   assert.equal(month.dayLoads["2026-06-30"].recurringTaskCount, 3);
   assert.equal(month.dayLoads["2026-06-30"].recurringTaskMinutes, 90);
   assert.equal(month.longTaskTimelineRows.length, 0);
+});
+
+test("keeps completed recurring pressure only through completion while using parent end dates", () => {
+  const recurringTasks: CalendarTask[] = [
+    task("parent", "Parent long", { start: "2026-06-20", scheduled: "2026-06-24" }, {
+      taskKind: "long"
+    }),
+    task("done-child", "Completed child habit", { start: "2026-06-22", completion: "2026-06-22" }, {
+      taskKind: "long",
+      parentLongTaskId: "parent",
+      parentLongTaskText: "Parent long",
+      recurrence: "every day",
+      completed: true,
+      estimateMinutes: 20
+    }),
+    task("active-child", "Active child habit", { start: "2026-06-22" }, {
+      taskKind: "long",
+      parentLongTaskId: "parent",
+      parentLongTaskText: "Parent long",
+      recurrence: "every day",
+      estimateMinutes: 15
+    })
+  ];
+
+  const month = buildMonthViewModel("2026-06-15", recurringTasks, 1, {}, 30, {}, "2026-06-22");
+  const week = buildWeekViewModel("2026-06-22", recurringTasks, 1, {}, 30, "2026-06-22");
+
+  assert.equal(month.dayLoads["2026-06-22"].recurringTaskCount, 2);
+  assert.equal(month.dayLoads["2026-06-22"].recurringTaskMinutes, 35);
+  assert.equal(month.dayLoads["2026-06-24"].recurringTaskCount, 1);
+  assert.equal(month.dayLoads["2026-06-24"].recurringTaskMinutes, 15);
+  assert.equal(month.dayLoads["2026-06-25"].recurringTaskCount, 0);
+  assert.equal(week.dayLoads["2026-06-22"].recurringTaskCount, 1);
 });
 
 test("uses recurring task scheduled dates before parent scheduled dates as inclusive ends", () => {

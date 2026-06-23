@@ -172,6 +172,16 @@ test("auto-detects existing long task ranges without trigger tags", () => {
   assert.deepEqual(tasks.map((item) => item.spanEnd), ["2026-06-19", "2026-06-17", undefined]);
 });
 
+test("scans planned dates onto calendar tasks", () => {
+  const tasks = scanMarkdownTasksFromText("Plans.md", "- [ ] Long #task [start:: 2026-06-20] [scheduled:: 2026-06-30] [planned:: 2026-06-23]", {
+    triggerTags: ["task"],
+    readLegacyEmojiDates: true,
+    forceExtract: false
+  });
+
+  assert.equal(tasks[0].plannedDate, "2026-06-23");
+});
+
 test("ignores configured excluded path prefixes", () => {
   const tasks = scanMarkdownTasksFromText(
     "time-blocks-data/2024-01.md",
